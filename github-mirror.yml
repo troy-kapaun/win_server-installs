@@ -4,50 +4,61 @@ trigger:
       - main
 
 pool:
-  vmImage: 'ubuntu-latest'
+  vmImage: 'windows-latest'
 
 steps:
 
 # -----------------------------------------
-# 1. Install Git and prepare environment
-# -----------------------------------------
-- script: |
-    sudo apt-get update
-    sudo apt-get install git -y
-  displayName: "Install Git"
-
-# -----------------------------------------
-# 2. Configure Git identity
-# -----------------------------------------
-- script: |
-    git config --global user.email "ado-sync@users.noreply.github.com"
-    git config --global user.name "Azure DevOps Mirror Bot"
-  displayName: "Configure Git identity"
-
-# -----------------------------------------
-# 3. Clone Azure DevOps repo (self)
+# 1. Checkout the Azure DevOps repo
 # -----------------------------------------
 - checkout: self
-  displayName: "Checkout Azure DevOps repo"
+  displayName: "Checkout ADO Repository"
 
 # -----------------------------------------
-# 4. Add GitHub remote using PAT
+# 2. Install Git (Windows agent usually has it, but ensure)
 # -----------------------------------------
-- script: |
-    echo "Adding GitHub remote..."
-    
-    git remote add github https://$(GITHUB_PAT)@github.com/troy-kapaun/win_server-installs.git
+- powershell: |
+    git --version
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Git not found — installing..."
+        choco install git -y
+    }
+  displayName: "Ensure Git Installed"
+
+# -----------------------------------------
+# 3. Configure Git identity
+# -----------------------------------------
+- powershell: |
+    git config --global user.email "ado-sync@users.noreply.github.com"
+    git config --global user.name "Azure DevOps Mirror Bot"
+  displayName: "Configure Git Identity"
+
+# -----------------------------------------
+# 4. Add GitHub remote (Secure PAT injection)
+# -----------------------------------------
+- powershell: |
+    Write-Host "Adding GitHub remote..."
+
+    # Remove existing remote if present
+    git remote remove github 2>$null
+
+    # IMPORTANT: Replace with your GitHub username + repo
+    $githubUrl = "https://$(GITHUB_PAT)@github.com/YOUR_GITHUB_USERNAME/win_server-installs.git"
+
+    git remote add github $githubUrl
 
     git remote -v
-  displayName: "Add GitHub remote"
+  displayName: "Add GitHub Remote"
 
 # -----------------------------------------
-# 5. Push ADO repo → GitHub repo
+# 5. Mirror Azure DevOps → GitHub
 # -----------------------------------------
-- script: |
-    echo "Mirroring to GitHub..."
-    
+- powershell: |
+    Write-Host "Mirroring Azure DevOps → GitHub..."
+
     git fetch --all
     git push github --force --all
     git push github --force --tags
+
+    Write-Host "✅ Mirror operation complete."
   displayName: "Mirror ADO → GitHub"
