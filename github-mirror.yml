@@ -1,0 +1,53 @@
+trigger:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+steps:
+
+# -----------------------------------------
+# 1. Install Git and prepare environment
+# -----------------------------------------
+- script: |
+    sudo apt-get update
+    sudo apt-get install git -y
+  displayName: "Install Git"
+
+# -----------------------------------------
+# 2. Configure Git identity
+# -----------------------------------------
+- script: |
+    git config --global user.email "ado-sync@users.noreply.github.com"
+    git config --global user.name "Azure DevOps Mirror Bot"
+  displayName: "Configure Git identity"
+
+# -----------------------------------------
+# 3. Clone Azure DevOps repo (self)
+# -----------------------------------------
+- checkout: self
+  displayName: "Checkout Azure DevOps repo"
+
+# -----------------------------------------
+# 4. Add GitHub remote using PAT
+# -----------------------------------------
+- script: |
+    echo "Adding GitHub remote..."
+    
+    git remote add github https://$(GITHUB_PAT)@github.com/troy-kapaun/win_server-installs.git
+
+    git remote -v
+  displayName: "Add GitHub remote"
+
+# -----------------------------------------
+# 5. Push ADO repo → GitHub repo
+# -----------------------------------------
+- script: |
+    echo "Mirroring to GitHub..."
+    
+    git fetch --all
+    git push github --force --all
+    git push github --force --tags
+  displayName: "Mirror ADO → GitHub"
