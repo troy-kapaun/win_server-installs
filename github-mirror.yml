@@ -11,13 +11,14 @@ pool:
 
 steps:
 
-# 1. Checkout ADO repo with credentials
+# 1. FULL clone with credentials
 - checkout: self
   persistCredentials: true
   clean: true
-  displayName: "Checkout ADO Repo"
+  fetchDepth: 0          # ✅ REQUIRED for real mirroring
+  displayName: "Checkout ADO Repo (Full Clone)"
 
-# 2. Configure Git
+# 2. Configure Git identity
 - powershell: |
     git config --global user.email "ado-sync@users.noreply.github.com"
     git config --global user.name "Azure DevOps Mirror Bot"
@@ -37,15 +38,11 @@ steps:
     git remote -v
   displayName: "Add GitHub Remote"
 
-# 4. Mirror
+# 4. Mirror ADO → GitHub
 - powershell: |
     Write-Host "Mirroring ADO → GitHub..."
 
-    # Azure DevOps checkout already has full commit history
-    # so we ONLY fetch GitHub
-    git fetch github
-
-    # Push all history, branches & tags
+    # Full history already cloned from Azure DevOps
     git push github --force --all
     git push github --force --tags
 
