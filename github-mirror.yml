@@ -46,6 +46,10 @@ steps:
     Write-Host "Configuring Git LFS tracking for image/binary formats..."
     cd repo
 
+    # ✅ Configure Git identity for LFS commit
+    git config user.email "ado-mirror@dev.azure.com"
+    git config user.name "Azure DevOps Mirror Bot"
+
     git lfs track "*.iso"
     git lfs track "*.wim"
     git lfs track "*.esd"
@@ -58,9 +62,10 @@ steps:
 
     try {
         git commit -m "Enable Git LFS tracking for large artifacts"
+        Write-Host "✅ LFS tracking committed."
     }
     catch {
-        Write-Host "No .gitattributes changes to commit."
+        Write-Host "ℹ️ No changes in .gitattributes — skipping commit."
     }
   displayName: "Enable Git LFS Tracking"
 
