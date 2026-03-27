@@ -15,7 +15,15 @@ This pipeline builds:
 ---
 
 ## 📦 Repository Structure
-ISO_Builds/
+win_server-installs/
+│
+├── azure-pipelines.yml
+├── .github/
+│   └── workflows/
+│       └── harden-windows.yml
+├── README.md
+│
+└──ISO_Builds/
 │
 ├── iso/                 # Downloaded ISOs (from Azure Artifacts or manual)
 ├── updates/             # MSU updates downloaded automatically
