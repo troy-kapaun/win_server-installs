@@ -32,11 +32,14 @@ steps:
 - powershell: |
     Write-Host "Adding GitHub remote..."
 
+    Write-Host "PAT length: $($(GITHUB_PAT).Length)"
+    displayName: "Debug PAT"
+
     # Ignore 'no such remote' on first run
     git remote remove github 2>$null; $null=$?
 
     # Build GitHub URL with secure PAT
-    $githubUrl = "https://$(GITHUB_PAT)@github.com/YOUR_GITHUB_USERNAME/win_server-installs.git"
+    $githubUrl = "https://$(GITHUB_PAT)@github.com/troy-kapaun/win_server-installs.git"
 
     git remote add github $githubUrl
     git remote -v
@@ -46,9 +49,6 @@ steps:
 # 4. Mirror Azure DevOps → GitHub
 # -----------------------------------------
 - powershell: |
-    Write-Host "PAT length: $($(GITHUB_PAT).Length)"
-    displayName: "Debug PAT"
-
     Write-Host "Mirroring ADO → GitHub..."
 
     git fetch --all
