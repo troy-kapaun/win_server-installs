@@ -1,0 +1,80 @@
+trigger:
+  - main
+
+pool:
+  vmImage: 'windows-latest'
+
+steps:
+
+# Install Windows ADK
+- powershell: |
+    Write-Host "Downloading Windows ADK..."
+    $url = "https://go.microsoft.com/fwlink/?linkid=2247041"
+    Invoke-WebRequest $url -OutFile adksetup.exe
+
+    Write-Host "Installing ADK Deployment Tools..."
+    Start-Process ".\adksetup.exe" -ArgumentList "/quiet /norestart /features OptionId.DeploymentTools" -Wait
+  displayName: "Install Windows ADK Deployment Tools"
+
+# Prepare working directory
+- powershell: |
+    if (Test-Path "C:\WIMBUILD") { Remove-Item "C:\WIMBUILD" -Recurse -Force }
+    New-Item "C:\WIMBUILD" -ItemType Directory | Out-Null
+  displayName: "Prepare WIMBUILD"
+
+# Copy repo contents
+- task: CopyFiles@2
+  displayName: "Copy ISO_Builds to C:\WIMBUILD"
+  inputs:
+    SourceFolder: "$(Build.SourcesDirectory)/ISO_Builds"
+    Contents: "**"
+    TargetFolder: "C:\WIMBUILD"
+
+# Download Server 2022
+- task: UniversalPackages@0
+  displayName: "Download Windows Server 2022 ISO"
+  inputs:
+    command: download
+    feed: "win-server-isos"
+    packageName: "windows-server-iso-2022"
+    packageVersion: "2022.1.0"
+    downloadDirectory: "C:\WIMBUILD\iso"
+
+# Download Server 2025
+- task: UniversalPackages@0
+  displayName: "Download Windows Server 2025 ISO"
+  inputs:
+    command: download
+    feed: "win-server-isos"
+    packageName: "windows-server-iso-2025"
+    packageVersion: "2025.1.0"
+    downloadDirectory: "C:\WIMBUILD\iso"
+
+# Run hardening
+- powershell: |
+    Set-Location C:\WIMBUILD\scripts
+
+    $iso2022 = (Get-ChildItem "C:\WIMBUILD\iso" | Where-Object { $_.Name -match "2022" }).FullName
+    $iso2025 = (Get-ChildItem "C:\WIMBUILD\iso" | Where-Object { $_.Name -match "2025" }).FullName
+
+    Write-Host "2022 ISO: $iso2022"
+    Write-Host "2025 ISO: $iso2025"
+
+    powershell.exe -ExecutionPolicy Bypass -File .\Build-All.ps1 `
+      -Iso2022 $iso2022 `
+      -Iso2025 $iso2025
+  displayName: "Harden 2022 + 2025"
+
+# Publish Server 2022
+- task: PublishBuildArtifacts@1
+  inputs:
+    PathtoPublish: "C:\WIMBUILD\Hardened2022.iso"
+    ArtifactName: "Hardened-Server2022"
+  displayName: "Publish Server 2022 Hardened ISO"
+
+# Publish Server 2025
+- task: PublishBuildArtifacts@1
+  inputs:
+    PathtoPublish: "C:\WIMBUILD\Hardened2025.iso"
+    ArtifactName: "Hardened-Server2025"
+  displayName: "Publish Server 2025 Hardened ISO"
