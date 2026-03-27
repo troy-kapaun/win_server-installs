@@ -32,9 +32,6 @@ steps:
 - powershell: |
     Write-Host "Adding GitHub remote..."
 
-    Write-Host "PAT length: $($(GITHUB_PAT).Length)"
-    displayName: "Debug PAT"
-
     # Ignore 'no such remote' on first run
     git remote remove github 2>$null; $null=$?
 
