@@ -9,13 +9,53 @@
     [string]$GpoPath,
 
     [Parameter(Mandatory=$true)]
-    [string]$OutputIso
+    [string]$OutputIso,
+
+    [switch]$DryRun
 )
 
 Write-Host "==============================================="
 Write-Host " HARDENING IMAGE: $IsoPath"
 Write-Host " Output ISO     : $OutputIso"
 Write-Host "===============================================" -ForegroundColor Cyan
+
+if ($DryRun) {
+    Write-Host "`n*** DRY RUN — NO CHANGES WILL BE MADE ***`n" -ForegroundColor Yellow
+    Write-Host "ISO Path:      $IsoPath"
+    Write-Host "Updates Path:  $UpdatesPath"
+    Write-Host "GPO Path:      $GpoPath"
+    Write-Host "Output ISO:    $OutputIso"
+    Write-Host ""
+
+    Write-Host "Validating paths..."
+
+    foreach ($p in @($IsoPath,$UpdatesPath,$GpoPath)) {
+        if (!(Test-Path $p)) { Write-Host "❌ Missing: $p" } else { Write-Host "✅ Found: $p" }
+    }
+
+    # Validate output directory
+    $OutDir = Split-Path $OutputIso -Parent
+    if (!(Test-Path $OutDir)) {
+        Write-Host "❌ Output directory does not exist: $OutDir"
+    } else {
+        Write-Host "✅ Output directory exists: $OutDir"
+    }
+
+    Write-Host "`nSimulated next steps:"
+    Write-Host "- Would mount ISO"
+    Write-Host "- Would extract ISO"
+    Write-Host "- Would convert ESD → WIM (if necessary)"
+    Write-Host "- Would mount WIM Index 2"
+    Write-Host "- Would inject MSU updates"
+    Write-Host "- Would apply Security.csv baseline"
+    Write-Host "- Would apply GPO (GroupPolicy + ADMX)"
+    Write-Host "- Would set up SetupComplete.cmd audit restore"
+    Write-Host "- Would commit WIM and build final ISO"
+    Write-Host "`nDry‑run completed — exiting before image operations."
+    exit 0
+}
+
+# (Full script continues unchanged…)
 
 # ===============================
 # 0. Prepare Working Directories
