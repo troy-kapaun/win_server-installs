@@ -3,56 +3,49 @@ trigger:
     include:
       - main
 
-# ✅ Load variable group
 variables:
-- group: github-secrets   # <-- MUST MATCH YOUR VARIABLE GROUP NAME
+- group: github-secrets
 
 pool:
   vmImage: 'windows-latest'
 
 steps:
 
-# -----------------------------------------
-# 1. Checkout Azure DevOps repo
-# -----------------------------------------
+# 1. Checkout ADO repo with credentials
 - checkout: self
+  persistCredentials: true
+  clean: true
   displayName: "Checkout ADO Repo"
 
-# -----------------------------------------
-# 2. Configure Git identity
-# -----------------------------------------
+# 2. Configure Git
 - powershell: |
     git config --global user.email "ado-sync@users.noreply.github.com"
     git config --global user.name "Azure DevOps Mirror Bot"
   displayName: "Configure Git Identity"
 
-# -----------------------------------------
-# 3. Add GitHub remote safely
-# -----------------------------------------
+# 3. Add GitHub remote
 - powershell: |
     Write-Host "Adding GitHub remote..."
 
-    # Safely remove remote if it exists
     if (git remote | Select-String "^github$") {
         git remote remove github
-    } else {
-        Write-Host "Remote 'github' does not exist — OK"
     }
 
-    # Build GitHub URL with secure PAT
     $githubUrl = "https://$(GITHUB_PAT)@github.com/troy-kapaun/win_server-installs.git"
-
     git remote add github $githubUrl
+
     git remote -v
   displayName: "Add GitHub Remote"
 
-# -----------------------------------------
-# 4. Mirror Azure DevOps → GitHub
-# -----------------------------------------
+# 4. Mirror
 - powershell: |
     Write-Host "Mirroring ADO → GitHub..."
 
+    # Azure DevOps checkout already has full commit history
+    # so we ONLY fetch GitHub
     git fetch github
+
+    # Push all history, branches & tags
     git push github --force --all
     git push github --force --tags
 
