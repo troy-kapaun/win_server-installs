@@ -3,6 +3,9 @@ trigger:
     include:
       - main
 
+variables:
+- group: github-secrets   # ✅ This loads GITHUB_PAT
+
 pool:
   vmImage: 'windows-latest'
 
