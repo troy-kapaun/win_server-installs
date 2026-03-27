@@ -1,0 +1,46 @@
+name: Build Hardened Windows ISOs
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+
+    - uses: actions/checkout@v4
+
+    - name: Install Windows ADK
+      run: |
+        Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/?linkid=2247041" -OutFile adksetup.exe
+        Start-Process ".\adksetup.exe" -ArgumentList "/quiet /norestart /features OptionId.DeploymentTools" -Wait
+
+    - name: Prepare workspace
+      run: |
+        if (Test-Path "C:\WIMBUILD") { Remove-Item C:\WIMBUILD -Recurse -Force }
+        New-Item C:\WIMBUILD -ItemType Directory | Out-Null
+        Copy-Item ISO_Builds\* C:\WIMBUILD -Recurse -Force
+
+    - name: Download ISOs from Azure Artifacts
+      run: |
+        echo "You can integrate az artifacts universal download here if needed."
+
+    - name: Harden ISOs
+      run: |
+        Set-Location C:\WIMBUILD\scripts
+        $iso2022 = Get-ChildItem C:\WIMBUILD\iso | Where-Object { $_.Name -match "2022" } | Select-Object -Expand FullName
+        $iso2025 = Get-ChildItem C:\WIMBUILD\iso | Where-Object { $_.Name -match "2025" } | Select-Object -Expand FullName
+        
+        powershell.exe -ExecutionPolicy Bypass -File .\Build-All.ps1 `
+            -Iso2022 $iso2022 `
+            -Iso2025 $iso2025
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: hardened-isos
+        path: |
+          C:\WIMBUILD\Hardened2022.iso
+          C:\WIMBUILD\Hardened2025.iso
