@@ -32,9 +32,12 @@ steps:
 - powershell: |
     Write-Host "Adding GitHub remote..."
 
-    
-    # Prevent first-run failure
-    git remote remove github *>$
+    # Safely remove remote if it exists
+    if (git remote | Select-String "^github$") {
+        git remote remove github
+    } else {
+        Write-Host "Remote 'github' does not exist — OK"
+    }
 
     # Build GitHub URL with secure PAT
     $githubUrl = "https://$(GITHUB_PAT)@github.com/troy-kapaun/win_server-installs.git"
