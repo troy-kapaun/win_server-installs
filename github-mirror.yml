@@ -43,7 +43,7 @@ steps:
     git remote remove github 2>$null
 
     # IMPORTANT: Replace with your GitHub username + repo
-    $githubUrl = "https://$(GITHUB_PAT)@github.com/YOUR_GITHUB_USERNAME/win_server-installs.git"
+    $githubUrl = "https://$(GITHUB_PAT)@github.com/troy-kapaun/win_server-installs.git"
 
     git remote add github $githubUrl
 
