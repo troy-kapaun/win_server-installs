@@ -1,0 +1,71 @@
+##########################################
+# Line Ending Normalization
+##########################################
+
+# Use LF for code files
+*.ps1 text eol=lf
+*.psm1 text eol=lf
+*.psd1 text eol=lf
+*.sh text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+
+# Use CRLF for Windows batch files
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+##########################################
+# Treat binaries properly
+##########################################
+
+# Large Windows image formats — keep as binary
+*.iso binary
+*.wim binary
+*.esd binary
+*.vhd binary
+*.vhdx binary
+*.msu binary
+*.cab binary
+
+# No diff for binaries
+*.iso -diff
+*.wim -diff
+*.esd -diff
+*.vhd -diff
+*.vhdx -diff
+*.msu -diff
+*.cab -diff
+
+##########################################
+# Improve PowerShell diff/rendering
+##########################################
+*.ps1 diff=powershell
+*.psm1 diff=powershell
+*.psd1 diff=powershell
+
+##########################################
+# Improve JSON/YAML diffs
+##########################################
+*.json diff=json
+*.yml diff=yaml
+*.yaml diff=yaml
+
+##########################################
+# GitHub linguist hints (optional)
+##########################################
+
+# Mark PowerShell scripts as primary language
+*.ps1 linguist-detectable=true
+*.psm1 linguist-detectable=true
+*.psd1 linguist-detectable=true
+
+# Ignore binary directories from language stats
+WIMBUILD/* linguist-vendored
+ISO_Builds/iso/* linguist-vendored
+
+##########################################
+# Normalize end‑of‑file behavior
+##########################################
+* text=auto
