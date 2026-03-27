@@ -7,11 +7,16 @@ pool:
   vmImage: 'windows-latest'
 
 variables:
-- group: github-secrets
+- group: github-secrets      # contains: GITHUB_PAT
 
 steps:
 
-# Clone
+# -------------------------------------------------------------
+# 1. Full Clone of Azure DevOps Repo Using System.AccessToken
+# -------------------------------------------------------------
+# NOTE: persistCredentials: true is NOT used because we manually clone
+# NOTE: System.AccessToken must be enabled in Pipeline Permissions
+
 - powershell: |
     Write-Host "Cloning Azure DevOps repo with full history..."
 
@@ -22,13 +27,37 @@ steps:
     SYSTEM_ACCESSTOKEN: $(System.AccessToken)
   displayName: "Clone ADO repo (full history)"
 
-# Debug
+# -------------------------------------------------------------
+# 2. Install & Configure Git LFS
+# -------------------------------------------------------------
 - powershell: |
-    Write-Host "Checking repo contents..."
-    Get-ChildItem repo -Recurse | Select-Object FullName
-  displayName: "Debug ADO Clone"
+    Write-Host "Installing Git LFS..."
+    choco install git-lfs -y
+    git lfs install
+  displayName: "Install Git LFS"
 
-# Add GitHub remote
+# -------------------------------------------------------------
+# 3. Track Large Windows Image Formats in LFS
+# -------------------------------------------------------------
+- powershell: |
+    Write-Host "Enabling Git LFS tracking for large file types..."
+    cd repo
+
+    git lfs track "*.iso"
+    git lfs track "*.wim"
+    git lfs track "*.esd"
+    git lfs track "*.vhd"
+    git lfs track "*.vhdx"
+    git lfs track "*.msu"
+    git lfs track "*.cab"
+
+    git add .gitattributes
+    git commit -m "Enable Git LFS tracking for large artifacts" || echo "No changes to commit."
+  displayName: "Enable Git LFS Tracking"
+
+# -------------------------------------------------------------
+# 4. Add GitHub Remote
+# -------------------------------------------------------------
 - powershell: |
     cd repo
 
@@ -42,15 +71,17 @@ steps:
     git remote -v
   displayName: "Add GitHub Remote"
 
-# Push mirror
+# -------------------------------------------------------------
+# 5. Push All Branches & Tags to GitHub
+# -------------------------------------------------------------
 - powershell: |
     cd repo
 
-    Write-Host "Pushing branches..."
+    Write-Host "Pushing all branches to GitHub via Git LFS..."
     git push github --force --all
 
-    Write-Host "Pushing tags..."
+    Write-Host "Pushing all tags to GitHub..."
     git push github --force --tags
 
-    Write-Host "✅ MIRROR COMPLETE"
+    Write-Host "✅ MIRROR COMPLETE — Azure DevOps → GitHub with Git LFS"
   displayName: "Mirror ADO → GitHub"
