@@ -52,7 +52,7 @@ steps:
 - powershell: |
     Write-Host "Mirroring ADO → GitHub..."
 
-    git fetch --all
+    git fetch github
     git push github --force --all
     git push github --force --tags
 
