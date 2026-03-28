@@ -11,42 +11,96 @@ variables:
 
 steps:
 
-# -------------------------------------------------------------
-# 1. Clone ADO Repo Using System.AccessToken
-# -------------------------------------------------------------
+###############################################################################
+# 1. Clone Azure DevOps repo using System.AccessToken (full clone)
+###############################################################################
 - powershell: |
     Write-Host "Cloning Azure DevOps repo with full history..."
 
-    try {
-        git clone --progress `
-          https://$env:SYSTEM_ACCESSTOKEN@dev.azure.com/BHE-IT-01/BHE-Nimbus%20Deployment%20Platform/_git/win_server-installs `
-          repo
-    }
-    catch {
-        Write-Host "❌ AUTH OR CLONE FAILED"
-        throw
-    }
+    git clone --progress `
+      https://$env:SYSTEM_ACCESSTOKEN@dev.azure.com/BHE-IT-01/BHE-Nimbus%20Deployment%20Platform/_git/win_server-installs `
+      repo
   env:
     SYSTEM_ACCESSTOKEN: $(System.AccessToken)
   displayName: "Clone ADO repo (full history)"
 
-# -------------------------------------------------------------
-# 2. Install Git LFS
-# -------------------------------------------------------------
+
+###############################################################################
+# 2. Install Java (needed for BFG Repo-Cleaner)
+###############################################################################
 - powershell: |
-    Write-Host "Installing Git LFS via Chocolatey..."
+    Write-Host "Installing Java (required for BFG)..."
+    choco install jre8 -y
+  displayName: "Install Java Runtime"
+
+
+###############################################################################
+# 3. Download BFG Repo Cleaner JAR
+###############################################################################
+- powershell: |
+    Write-Host "Downloading BFG Repo Cleaner..."
+    Invoke-WebRequest `
+      -Uri "https://repo1.maven.org/maven2/com/madgag/bfg-repo-cleaner/1.14.0/bfg-repo-cleaner-1.14.0.jar" `
+      -OutFile "bfg.jar"
+  displayName: "Download BFG Repo Cleaner"
+
+
+###############################################################################
+# 4. Convert repo to a bare clone (required by BFG)
+###############################################################################
+- powershell: |
+    Write-Host "Converting to bare clone for BFG processing..."
+
+    cd repo
+    git fetch --all
+    cd ..
+
+    git clone --bare repo repo.bare
+  displayName: "Create bare clone for BFG"
+
+
+###############################################################################
+# 5. RUN BFG: Strip large binaries (>50MB) from history
+###############################################################################
+- powershell: |
+    Write-Host "Running BFG to remove large files (>50MB)..."
+
+    java -jar bfg.jar --strip-blobs-bigger-than 50M repo.bare
+  displayName: "Run BFG Cleanup (>50MB)"
+
+
+###############################################################################
+# 6. Apply changes to bare repo and checkout clean repo
+###############################################################################
+- powershell: |
+    cd repo.bare
+
+    Write-Host "Applying BFG cleanup..."
+
+    git reflog expire --expire=now --all
+    git gc --prune=now --aggressive
+  displayName: "Git GC After BFG"
+
+# Re-checkout cleaned repo
+- powershell: |
+    Write-Host "Checking out cleaned repository..."
+    git clone repo.bare cleaned_repo
+  displayName: "Checkout Cleaned Repo"
+
+
+###############################################################################
+# 7. Enable Git LFS on cleaned repo
+###############################################################################
+- powershell: |
+    Write-Host "Installing Git LFS..."
     choco install git-lfs -y
     git lfs install
   displayName: "Install Git LFS"
 
-# -------------------------------------------------------------
-# 3. Enable Git LFS tracking for large file types
-# -------------------------------------------------------------
 - powershell: |
-    Write-Host "Configuring Git LFS tracking for image/binary formats..."
-    cd repo
+    Write-Host "Enabling LFS pointer tracking..."
+    cd cleaned_repo
 
-    # ✅ Configure Git identity for LFS commit
     git config user.email "ado-mirror@dev.azure.com"
     git config user.name "Azure DevOps Mirror Bot"
 
@@ -59,21 +113,15 @@ steps:
     git lfs track "*.cab"
 
     git add .gitattributes
-
-    try {
-        git commit -m "Enable Git LFS tracking for large artifacts"
-        Write-Host "✅ LFS tracking committed."
-    }
-    catch {
-        Write-Host "ℹ️ No changes in .gitattributes — skipping commit."
-    }
+    git commit -m "Add Git LFS tracking (post-BFG)" || echo "No changes"
   displayName: "Enable Git LFS Tracking"
 
-# -------------------------------------------------------------
-# 4. Add GitHub remote
-# -------------------------------------------------------------
+
+###############################################################################
+# 8. Add GitHub remote to cleaned repo
+###############################################################################
 - powershell: |
-    cd repo
+    cd cleaned_repo
 
     if (git remote | Select-String "^github$") {
         git remote remove github
@@ -85,17 +133,17 @@ steps:
     git remote -v
   displayName: "Add GitHub Remote"
 
-# -------------------------------------------------------------
-# 5. Push branches + tags to GitHub (LFS enabled)
-# -------------------------------------------------------------
+
+###############################################################################
+# 9. Mirror cleaned history to GitHub
+###############################################################################
 - powershell: |
-    cd repo
+    cd cleaned_repo
 
-    Write-Host "Pushing branches..."
+    Write-Host "Pushing cleaned repo to GitHub..."
+
     git push github --force --all
-
-    Write-Host "Pushing tags..."
     git push github --force --tags
 
-    Write-Host "✅ MIRROR COMPLETE — ADO → GitHub with Git LFS"
-  displayName: "Mirror ADO → GitHub"
+    Write-Host "✅ MIRROR COMPLETE — CLEANED WITH BFG + LFS"
+  displayName: "Push Cleaned Repo to GitHub"
