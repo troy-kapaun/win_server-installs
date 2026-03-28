@@ -38,9 +38,10 @@ steps:
 # 3. Download BFG Repo Cleaner JAR
 ###############################################################################
 - powershell: |
-    Write-Host "Downloading BFG Repo Cleaner..."
+    Write-Host "Downloading BFG Repo Cleaner (latest release)..."
+
     Invoke-WebRequest `
-      -Uri "https://repo1.maven.org/maven2/com/madgag/bfg-repo-cleaner/1.14.0/bfg-repo-cleaner-1.14.0.jar" `
+      -Uri "https://github.com/rtyley/bfg-repo-cleaner/releases/latest/download/bfg.jar" `
       -OutFile "bfg.jar"
   displayName: "Download BFG Repo Cleaner"
 
