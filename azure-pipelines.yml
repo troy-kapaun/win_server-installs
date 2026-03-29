@@ -6,7 +6,6 @@ trigger:
 # ============================
 
 parameters:
-
   - name: runValidation
     type: boolean
     default: true
@@ -38,166 +37,117 @@ parameters:
     displayName: "Push Repo to GitHub Mirror"
 
 # ============================
-#        BUILD AGENT
+#        BUILD JOB
 # ============================
 
-pool:
-  vmImage: 'windows-latest'
+jobs:
+- job: HardenedISO
+  displayName: "Build Hardened Windows ISOs"
+  pool:
+    vmImage: 'windows-latest'
 
-# ============================
-#        MAIN STEPS
-# ============================
+  steps:
 
-steps:
+  # 1. CHECKOUT REPO
+  - checkout: self
+    displayName: "Checkout Repository"
 
-# ----------------------------
-# 1. CHECKOUT REPO
-# ----------------------------
-- checkout: self
-  displayName: "Checkout Repository"
+  # 2. VALIDATION
+  - powershell: |
+      ./ISO_Builds/scripts/Validate-Repo.ps1
+    condition: eq('${{ parameters.runValidation }}', true)
+    displayName: "✅ Repository Integrity Validation"
 
+  # 3. INSTALL ADK
+  - powershell: |
+      Write-Host "Downloading Windows ADK..."
+      $url = "https://go.microsoft.com/fwlink/?linkid=2247041"
+      Invoke-WebRequest $url -OutFile adksetup.exe
 
-# ----------------------------
-# 2. RUN VALIDATION
-# ----------------------------
-- powershell: |
-    ./ISO_Builds/scripts/Validate-Repo.ps1
-  condition: eq('${{ parameters.runValidation }}', true)
-  displayName: "✅ Repository Integrity Validation"
+      Write-Host "Installing Windows ADK Deployment Tools..."
+      Start-Process ".\adksetup.exe" -ArgumentList "/quiet /norestart /features OptionId.DeploymentTools" -Wait
+    displayName: "✅ Install Windows ADK"
 
+  # 4. PREP WORKDIR
+  - powershell: |
+      if (Test-Path "C:\WIMBUILD") { Remove-Item "C:\WIMBUILD" -Recurse -Force }
+      New-Item "C:\WIMBUILD" -ItemType Directory | Out-Null
 
-# ----------------------------
-# 3. INSTALL WINDOWS ADK
-# ----------------------------
-- powershell: |
-    Write-Host "Downloading Windows ADK..."
-    $url = "https://go.microsoft.com/fwlink/?linkid=2247041"
-    Invoke-WebRequest $url -OutFile adksetup.exe
+      Copy-Item "$(Build.SourcesDirectory)\ISO_Builds\*" "C:\WIMBUILD" -Recurse -Force
+    displayName: "✅ Prepare Work Directory"
 
-    Write-Host "Installing Windows ADK Deployment Tools..."
-    Start-Process ".\adksetup.exe" -ArgumentList "/quiet /norestart /features OptionId.DeploymentTools" -Wait
-  displayName: "✅ Install Windows ADK Deployment Tools"
+  # 5. AUTO-DOWNLOAD MSUs
+  - powershell: |
+      ./ISO_Builds/scripts/Auto-Update-MSUs.ps1
+    condition: eq('${{ parameters.runMsuAutoUpdate }}', true)
+    displayName: "⬇️ Auto‑Download Latest MSUs"
 
+  # 6. DRY RUN
+  - powershell: |
+      Set-Location C:\WIMBUILD\scripts
+      ./Harden-WIM.ps1 `
+        -IsoPath "C:\WIMBUILD\iso\dummy2022.iso" `
+        -UpdatesPath "C:\WIMBUILD\updates\2022" `
+        -GpoPath "C:\WIMBUILD\gpo" `
+        -OutputIso "C:\WIMBUILD\DryRun.iso" `
+        -DryRun
+    condition: eq('${{ parameters.runDryRun }}', true)
+    displayName: "🧪 Harden-WIM Dry Run Simulation"
 
-# ----------------------------
-# 4. PREP WORKDIR
-# ----------------------------
-- powershell: |
-    if (Test-Path "C:\WIMBUILD") { Remove-Item "C:\WIMBUILD" -Recurse -Force }
-    New-Item "C:\WIMBUILD" -ItemType Directory | Out-Null
+  # 7. LOCATE ISOs
+  - powershell: |
+      $iso2022 = Get-ChildItem "C:\WIMBUILD\iso" | Where-Object { $_.Name -match "2022" } | Select-Object -Expand FullName -ErrorAction Ignore
+      $iso2025 = Get-ChildItem "C:\WIMBUILD\iso" | Where-Object { $_.Name -match "2025" } | Select-Object -Expand FullName -ErrorAction Ignore
 
-    Copy-Item "$(Build.SourcesDirectory)\ISO_Builds\*" "C:\WIMBUILD" -Recurse -Force
-  displayName: "✅ Prepare Work Directory"
+      if (-not $iso2022 -and ${{ parameters.harden2022 }}) { Write-Error "Missing 2022 ISO" }
+      if (-not $iso2025 -and ${{ parameters.harden2025 }}) { Write-Error "Missing 2025 ISO" }
 
+      Set-Content "C:\WIMBUILD\iso\resolved2022.txt" $iso2022
+      Set-Content "C:\WIMBUILD\iso\resolved2025.txt" $iso2025
+    displayName: "🔎 Locate ISOs"
 
-# ----------------------------
-# 5. AUTO-DOWNLOAD MSUs (OPTIONAL)
-# ----------------------------
-- powershell: |
-    ./ISO_Builds/scripts/Auto-Update-MSUs.ps1
-  condition: eq('${{ parameters.runMsuAutoUpdate }}', true)
-  displayName: "⬇️ Auto‑Download Latest MSUs"
+  # 8. HARDEN 2022
+  - powershell: |
+      $iso2022 = Get-Content "C:\WIMBUILD\iso\resolved2022.txt"
+      Set-Location C:\WIMBUILD\scripts
+      ./Harden-WIM.ps1 `
+        -IsoPath $iso2022 `
+        -UpdatesPath "C:\WIMBUILD\updates\2022" `
+        -GpoPath "C:\WIMBUILD\gpo" `
+        -OutputIso "C:\WIMBUILD\Hardened2022.iso"
+    condition: eq('${{ parameters.harden2022 }}', true)
+    displayName: "🔥 Harden Windows Server 2022"
 
+  # 9. HARDEN 2025
+  - powershell: |
+      $iso2025 = Get-Content "C:\WIMBUILD\iso\resolved2025.txt"
+      Set-Location C:\WIMBUILD\scripts
+      ./Harden-WIM.ps1 `
+        -IsoPath $iso2025 `
+        -UpdatesPath "C:\WIMBUILD\updates\2025" `
+        -GpoPath "C:\WIMBUILD\gpo" `
+        -OutputIso "C:\WIMBUILD\Hardened2025.iso"
+    condition: eq('${{ parameters.harden2025 }}', true)
+    displayName: "🔥 Harden Windows Server 2025"
 
-# ----------------------------
-# 6. DRY RUN (OPTIONAL)
-# ----------------------------
-- powershell: |
-    Set-Location C:\WIMBUILD\scripts
+  # 10. PUBLISH OUTPUT
+  - task: PublishBuildArtifacts@1
+    inputs:
+      PathtoPublish: "C:\WIMBUILD\Hardened2022.iso"
+      ArtifactName: "Hardened-Server2022"
+    condition: eq('${{ parameters.harden2022 }}', true)
+    displayName: "📦 Publish Hardened 2022 ISO"
 
-    # Simulate paths for dry run
-    $iso2022 = "C:\WIMBUILD\iso\dummy2022.iso"
-    $iso2025 = "C:\WIMBUILD\iso\dummy2025.iso"
+  - task: PublishBuildArtifacts@1
+    inputs:
+      PathtoPublish: "C:\WIMBUILD\Hardened2025.iso"
+      ArtifactName: "Hardened-Server2025"
+    condition: eq('${{ parameters.harden2025 }}', true)
+    displayName: "📦 Publish Hardened 2025 ISO"
 
-    ./Harden-WIM.ps1 `
-      -IsoPath $iso2022 `
-      -UpdatesPath "C:\WIMBUILD\updates\2022" `
-      -GpoPath "C:\WIMBUILD\gpo" `
-      -OutputIso "C:\WIMBUILD\DryRun.iso" `
-      -DryRun
-  condition: eq('${{ parameters.runDryRun }}', true)
-  displayName: "🧪 Harden-WIM Dry Run Simulation"
-
-
-# ----------------------------
-# 7. LOCATE DOWNLOADED ISOs
-# ----------------------------
-- powershell: |
-    $iso2022 = Get-ChildItem "C:\WIMBUILD\iso" | Where-Object { $_.Name -match "2022" } | Select-Object -Expand FullName -ErrorAction Ignore
-    $iso2025 = Get-ChildItem "C:\WIMBUILD\iso" | Where-Object { $_.Name -match "2025" } | Select-Object -Expand FullName -ErrorAction Ignore
-
-    Write-Host "ISO 2022: $iso2022"
-    Write-Host "ISO 2025: $iso2025"
-
-    if (-not $iso2022 -and ${{ parameters.harden2022 }}) {
-        Write-Host "❌ Missing 2022 ISO. Upload it to Azure Artifacts first."
-        exit 1
-    }
-    if (-not $iso2025 -and ${{ parameters.harden2025 }}) {
-        Write-Host "❌ Missing 2025 ISO. Upload it to Azure Artifacts first."
-        exit 1
-    }
-
-    Set-Content -Path "C:\WIMBUILD\iso\resolved2022.txt" -Value $iso2022
-    Set-Content -Path "C:\WIMBUILD\iso\resolved2025.txt" -Value $iso2025
-  displayName: "🔎 Locate ISOs"
-
-
-# ----------------------------
-# 8. HARDEN SERVER 2022
-# ----------------------------
-- powershell: |
-    $iso2022 = Get-Content "C:\WIMBUILD\iso\resolved2022.txt"
-    Set-Location C:\WIMBUILD\scripts
-
-    ./Harden-WIM.ps1 `
-      -IsoPath $iso2022 `
-      -UpdatesPath "C:\WIMBUILD\updates\2022" `
-      -GpoPath "C:\WIMBUILD\gpo" `
-      -OutputIso "C:\WIMBUILD\Hardened2022.iso"
-  condition: eq('${{ parameters.harden2022 }}', true)
-  displayName: "🔥 Harden Windows Server 2022"
-
-
-# ----------------------------
-# 9. HARDEN SERVER 2025
-# ----------------------------
-- powershell: |
-    $iso2025 = Get-Content "C:\WIMBUILD\iso\resolved2025.txt"
-    Set-Location C:\WIMBUILD\scripts
-
-    ./Harden-WIM.ps1 `
-      -IsoPath $iso2025 `
-      -UpdatesPath "C:\WIMBUILD\updates\2025" `
-      -GpoPath "C:\WIMBUILD\gpo" `
-      -OutputIso "C:\WIMBUILD\Hardened2025.iso"
-  condition: eq('${{ parameters.harden2025 }}', true)
-  displayName: "🔥 Harden Windows Server 2025"
-
-
-# ----------------------------
-# 10. PUBLISH BUILD OUTPUT
-# ----------------------------
-- task: PublishBuildArtifacts@1
-  displayName: "📦 Publish Hardened 2022 ISO"
-  condition: eq('${{ parameters.harden2022 }}', true)
-  inputs:
-    PathtoPublish: "C:\WIMBUILD\Hardened2022.iso"
-    ArtifactName: "Hardened-Server2022"
-
-- task: PublishBuildArtifacts@1
-  displayName: "📦 Publish Hardened 2025 ISO"
-  condition: eq('${{ parameters.harden2025 }}', true)
-  inputs:
-    PathtoPublish: "C:\WIMBUILD\Hardened2025.iso"
-    ArtifactName: "Hardened-Server2025"
-
-
-# ----------------------------
-# 11. MIRROR TO GITHUB (OPTIONAL)
-# ----------------------------
-- powershell: |
-    Write-Host "Running GitHub Mirror..."
-    ./github-mirror.yml
-  displayName: "🔁 GitHub Mirror Sync"
-  condition: eq('${{ parameters.runGithubMirror }}', true)
+  # 11. MIRROR TO GITHUB
+  - powershell: |
+      Write-Host "Running GitHub Mirror..."
+      ./github-mirror.yml
+    condition: eq('${{ parameters.runGithubMirror }}', true)
+    displayName: "🔁 GitHub Mirror Sync"
