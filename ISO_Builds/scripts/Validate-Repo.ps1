@@ -5,9 +5,9 @@ $errors = @()
 
 function Check-Path($Path, $Description) {
     if (!(Test-Path $Path)) {
-        $errors += "❌ Missing: $Description ($Path)"
+        $errors += "[FAIL] Missing: $Description ($Path)"
     } else {
-        Write-Host "✅ $Description"
+        Write-Host "[OK] $Description"
     }
 }
 
@@ -46,24 +46,24 @@ Check-Path $Oscd "Windows ADK Deployment Tools (oscdimg.exe)"
 Write-Host "`n[5] Check DISM"
 dism /? | Out-Null
 if ($LASTEXITCODE -ne 0) {
-    $errors += "❌ DISM not functional"
+    $errors += "[FAIL] DISM not functional"
 } else {
-    Write-Host "✅ DISM OK"
+    Write-Host "[OK] DISM OK"
 }
 
 Write-Host "`n[6] Validate config.json"
 try {
     $config = Get-Content "$root\ISO_Builds\scripts\config.json" | ConvertFrom-Json
-    Write-Host "✅ config.json parsed successfully"
+    Write-Host "[OK] config.json parsed successfully"
 } catch {
-    $errors += "❌ config.json is not valid JSON"
+    $errors += "[FAIL] config.json is not valid JSON"
 }
 
 Write-Host "`n=== RESULTS ==="
 if ($errors.Count -eq 0) {
-    Write-Host "✅ ALL CHECKS PASSED — repository structure is valid." -ForegroundColor Green
+    Write-Host "[OK] ALL CHECKS PASSED - repository structure is valid." -ForegroundColor Green
 } else {
-    Write-Host "⚠️ Issues found:" -ForegroundColor Yellow
+    Write-Host "[WARNING] Issues found:" -ForegroundColor Yellow
     $errors | ForEach-Object { Write-Host $_ -ForegroundColor Red }
     exit 1
 }
