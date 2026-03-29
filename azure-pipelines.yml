@@ -40,17 +40,43 @@ jobs:
     displayName: "Cache ADK"
 
   - powershell: |
-      # Ensure folder exists BEFORE downloading
+      $ErrorActionPreference = 'Stop'
       New-Item -ItemType Directory -Force -Path 'C:\ADKCache' | Out-Null
 
       if (!(Test-Path 'C:\ADKCache\done.flag')) {
-        Write-Host "Downloading ADK..."
+        # Download the ADK online installer
+        Write-Host "Downloading ADK installer..."
         Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/?linkid=2247041' -OutFile 'C:\ADKCache\adksetup.exe'
 
-        Write-Host "Installing Deployment Tools..."
-        Start-Process 'C:\ADKCache\adksetup.exe' -ArgumentList '/quiet /norestart /features OptionId.DeploymentTools' -Wait
+        # Use /layout to download the full offline payload first
+        Write-Host "Downloading ADK offline layout..."
+        $layout = Start-Process 'C:\ADKCache\adksetup.exe' `
+          -ArgumentList '/quiet /layout C:\ADKCache\layout' `
+          -Wait -PassThru
+        if ($layout.ExitCode -ne 0) {
+          throw "ADK layout download failed with exit code $($layout.ExitCode)"
+        }
+
+        # Install from the offline layout
+        Write-Host "Installing Deployment Tools from offline layout..."
+        $install = Start-Process 'C:\ADKCache\layout\adksetup.exe' `
+          -ArgumentList '/quiet /norestart /features OptionId.DeploymentTools' `
+          -Wait -PassThru
+        if ($install.ExitCode -ne 0) {
+          throw "ADK install failed with exit code $($install.ExitCode)"
+        }
 
         New-Item -ItemType File -Path 'C:\ADKCache\done.flag' | Out-Null
+        Write-Host "ADK installed successfully."
+      } else {
+        Write-Host "ADK already cached - installing from offline layout..."
+        $install = Start-Process 'C:\ADKCache\layout\adksetup.exe' `
+          -ArgumentList '/quiet /norestart /features OptionId.DeploymentTools' `
+          -Wait -PassThru
+        if ($install.ExitCode -ne 0) {
+          throw "ADK install failed with exit code $($install.ExitCode)"
+        }
+        Write-Host "ADK installed from cache."
       }
     displayName: "Install ADK"
 
