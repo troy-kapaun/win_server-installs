@@ -1,20 +1,16 @@
 trigger:
 - main
 
-# ==========================================================
-#  MATRIX JOB MUST BE FIRST REAL JOB IN FILE
-# ==========================================================
 jobs:
 
-#############################################################
-# MATRIX JOB — Windows Server 2022 + 2025
-#############################################################
+# ==========================================================
+#  MATRIX JOB - Windows Server 2022 + 2025
+# ==========================================================
 - job: HardenMatrix
   displayName: "Matrix Harden ISO Builds"
   pool:
     vmImage: 'windows-latest'
 
-  # ✅ strategy MUST appear immediately under job
   strategy:
     matrix:
       WS2022:
@@ -22,16 +18,14 @@ jobs:
       WS2025:
         VERSION: "2025"
 
-  # ✅ steps MUST appear immediately after strategy
   steps:
 
-  # ✅ Expose matrix VERSION to PowerShell safely
+  # Pass VERSION into environment correctly
   - powershell: echo "VERSION=$env:VERSION"
     env:
       VERSION: $(VERSION)
     displayName: "Expose VERSION"
 
-  # --------------------------------------------------------
   - checkout: self
     displayName: "Checkout Repo"
 
@@ -46,7 +40,7 @@ jobs:
     displayName: "Cache ADK"
 
   - powershell: |
-  # ✅ Ensure folder exists BEFORE downloading
+      # Ensure folder exists BEFORE downloading
       New-Item -ItemType Directory -Force -Path 'C:\ADKCache' | Out-Null
 
       if (!(Test-Path 'C:\ADKCache\done.flag')) {
@@ -59,7 +53,6 @@ jobs:
         New-Item -ItemType File -Path 'C:\ADKCache\done.flag' | Out-Null
       }
     displayName: "Install ADK"
-
 
   - powershell: |
       if (Test-Path 'C:\WIMBUILD') { Remove-Item 'C:\WIMBUILD' -Recurse -Force }
@@ -83,9 +76,9 @@ jobs:
 
       Write-Host "Downloaded ISO:"
       Get-ChildItem $dest
+    displayName: "Download ISO"
     env:
       VERSION: $(VERSION)
-    displayName: "Download ISO"
 
   - powershell: |
       $version = $env:VERSION
@@ -95,21 +88,22 @@ jobs:
 
       Set-Location 'C:\WIMBUILD\scripts'
       ./Harden-WIM.ps1 -IsoPath $iso -UpdatesPath $updates -GpoPath 'C:\WIMBUILD\gpo' -OutputIso $outiso
+    displayName: "Harden Image"
     env:
       VERSION: $(VERSION)
-    displayName: "Harden Image"
 
   - task: PublishBuildArtifacts@1
     inputs:
-      PathtoPublish: 'C:\WIMBUILD\Hardened$(VERSION).iso'
-      ArtifactName: 'Hardened-$(VERSION)'
+      PathtoPublish: "C:\\WIMBUILD\\Hardened$(VERSION).iso"
+      ArtifactName: "Hardened-$(VERSION)"
     env:
       VERSION: $(VERSION)
     displayName: "Publish ISO"
 
-#############################################################
-# OPTIONAL MIRROR JOB
-#############################################################
+
+# ==========================================================
+#  OPTIONAL MIRROR JOB
+# ==========================================================
 - job: MirrorJob
   dependsOn: HardenMatrix
   condition: eq(variables['runGithubMirror'], 'true')
@@ -122,9 +116,9 @@ jobs:
       ./github-mirror.yml
     displayName: "Run GitHub Mirror"
 
-#############################################################
-# MONTHLY SCHEDULE — MUST BE LAST
-#############################################################
+# ==========================================================
+#  THIRD TUESDAY MONTHLY SCHEDULE
+# ==========================================================
 schedules:
 - cron: "0 3 15-21 * 2"
   displayName: "Third Tuesday Monthly Build"
