@@ -1,7 +1,5 @@
 Write-Host "=== VALIDATING REPOSITORY INTEGRITY ===" -ForegroundColor Cyan
 
-# $PSScriptRoot = repo/ISO_Builds/scripts
-# $root = repo/ISO_Builds  ✅ correct root
 $root = Split-Path $PSScriptRoot -Parent
 $errors = @()
 
@@ -41,14 +39,12 @@ Write-Host "`n[3] GPO Baseline Files"
 Check-Path "$root\gpo\Security.csv" "Security.csv baseline"
 Check-Path "$root\gpo\Audit.ini"    "Audit.ini baseline"
 
-Write-Host "`n[4] Check ADK (oscdimg.exe) — skipping fatal check until ADK is installed"
-
+Write-Host "`n[4] Check ADK (oscdimg.exe) — skipped until ADK is installed later"
 $Oscd = "C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\amd64\Oscdimg\oscdimg.exe"
-
 if (Test-Path $Oscd) {
     Write-Host "[OK] ADK Deployment Tools found"
 } else {
-    Write-Host "[WARNING] ADK not installed yet — skipping check"
+    Write-Host "[WARNING] ADK is not installed yet — skipping check"
 }
 
 Write-Host "`n[5] Check DISM"
