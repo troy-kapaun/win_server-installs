@@ -1,153 +1,126 @@
 trigger:
-  - main
+- main
 
-# ============================
-#        PIPELINE PARAMS
-# ============================
-
-parameters:
-  - name: runValidation
-    type: boolean
-    default: true
-    displayName: "Run Repository Validation"
-
-  - name: runDryRun
-    type: boolean
-    default: false
-    displayName: "Run Harden-WIM Dry-Run Only"
-
-  - name: harden2022
-    type: boolean
-    default: true
-    displayName: "Build Hardened Windows Server 2022 ISO"
-
-  - name: harden2025
-    type: boolean
-    default: true
-    displayName: "Build Hardened Windows Server 2025 ISO"
-
-  - name: runMsuAutoUpdate
-    type: boolean
-    default: false
-    displayName: "Auto-Download Latest MSUs Before Build"
-
-  - name: runGithubMirror
-    type: boolean
-    default: false
-    displayName: "Push Repo to GitHub Mirror"
-
-# ============================
-#        BUILD JOB
-# ============================
-
+# ==========================================================
+#  MATRIX JOB MUST BE FIRST REAL JOB IN FILE
+# ==========================================================
 jobs:
-- job: HardenedISO
-  displayName: "Build Hardened Windows ISOs"
+
+#############################################################
+# MATRIX JOB — Windows Server 2022 + 2025
+#############################################################
+- job: HardenMatrix
+  displayName: "Matrix Harden ISO Builds"
+  pool:
+    vmImage: 'windows-latest'
+
+  # ✅ strategy MUST appear immediately under job
+  strategy:
+    matrix:
+      WS2022:
+        VERSION: "2022"
+      WS2025:
+        VERSION: "2025"
+
+  # ✅ steps MUST appear immediately after strategy
+  steps:
+
+  # ✅ Expose matrix VERSION to PowerShell safely
+  - powershell: echo "VERSION=$env:VERSION"
+    env:
+      VERSION: $(VERSION)
+    displayName: "Expose VERSION"
+
+  # --------------------------------------------------------
+  - checkout: self
+    displayName: "Checkout Repo"
+
+  - powershell: |
+      ./ISO_Builds/scripts/Validate-Repo.ps1
+    displayName: "Validate Repo"
+
+  - task: Cache@2
+    inputs:
+      key: 'win-adk'
+      path: 'C:\ADKCache'
+    displayName: "Cache ADK"
+
+  - powershell: |
+      if (!(Test-Path 'C:\ADKCache\done.flag')) {
+        Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/?linkid=2247041' -OutFile 'C:\ADKCache\adksetup.exe'
+        Start-Process 'C:\ADKCache\adksetup.exe' -ArgumentList '/quiet /norestart /features OptionId.DeploymentTools' -Wait
+        New-Item -ItemType File -Path 'C:\ADKCache\done.flag' | Out-Null
+      }
+    displayName: "Install ADK"
+
+  - powershell: |
+      if (Test-Path 'C:\WIMBUILD') { Remove-Item 'C:\WIMBUILD' -Recurse -Force }
+      New-Item 'C:\WIMBUILD' -ItemType Directory | Out-Null
+      Copy-Item "$(Build.SourcesDirectory)\ISO_Builds\*" 'C:\WIMBUILD' -Recurse -Force
+    displayName: "Prepare Workdir"
+
+  - powershell: |
+      $version = $env:VERSION
+      $feed = 'win-server-isos'
+      $pkg = "windows-server-iso-$version"
+      $dest = 'C:\WIMBUILD\iso'
+
+      New-Item $dest -ItemType Directory -Force | Out-Null
+
+      az artifacts universal download `
+        --feed $feed `
+        --name $pkg `
+        --version '*' `
+        --path $dest
+
+      Write-Host "Downloaded ISO:"
+      Get-ChildItem $dest
+    env:
+      VERSION: $(VERSION)
+    displayName: "Download ISO"
+
+  - powershell: |
+      $version = $env:VERSION
+      $iso = (Get-ChildItem 'C:\WIMBUILD\iso').FullName
+      $updates = "C:\WIMBUILD\updates\$version"
+      $outiso = "C:\WIMBUILD\Hardened$version.iso"
+
+      Set-Location 'C:\WIMBUILD\scripts'
+      ./Harden-WIM.ps1 -IsoPath $iso -UpdatesPath $updates -GpoPath 'C:\WIMBUILD\gpo' -OutputIso $outiso
+    env:
+      VERSION: $(VERSION)
+    displayName: "Harden Image"
+
+  - task: PublishBuildArtifacts@1
+    inputs:
+      PathtoPublish: 'C:\WIMBUILD\Hardened$(VERSION).iso'
+      ArtifactName: 'Hardened-$(VERSION)'
+    env:
+      VERSION: $(VERSION)
+    displayName: "Publish ISO"
+
+#############################################################
+# OPTIONAL MIRROR JOB
+#############################################################
+- job: MirrorJob
+  dependsOn: HardenMatrix
+  condition: eq(variables['runGithubMirror'], 'true')
   pool:
     vmImage: 'windows-latest'
 
   steps:
-
-  # 1. CHECKOUT REPO
-  - checkout: self
-    displayName: "Checkout Repository"
-
-  # 2. VALIDATION
   - powershell: |
-      ./ISO_Builds/scripts/Validate-Repo.ps1
-    condition: eq('${{ parameters.runValidation }}', true)
-    displayName: "✅ Repository Integrity Validation"
-
-  # 3. INSTALL ADK
-  - powershell: |
-      Write-Host "Downloading Windows ADK..."
-      $url = "https://go.microsoft.com/fwlink/?linkid=2247041"
-      Invoke-WebRequest $url -OutFile adksetup.exe
-
-      Write-Host "Installing Windows ADK Deployment Tools..."
-      Start-Process ".\adksetup.exe" -ArgumentList "/quiet /norestart /features OptionId.DeploymentTools" -Wait
-    displayName: "✅ Install Windows ADK"
-
-  # 4. PREP WORKDIR
-  - powershell: |
-      if (Test-Path "C:\WIMBUILD") { Remove-Item "C:\WIMBUILD" -Recurse -Force }
-      New-Item "C:\WIMBUILD" -ItemType Directory | Out-Null
-
-      Copy-Item "$(Build.SourcesDirectory)\ISO_Builds\*" "C:\WIMBUILD" -Recurse -Force
-    displayName: "✅ Prepare Work Directory"
-
-  # 5. AUTO-DOWNLOAD MSUs
-  - powershell: |
-      ./ISO_Builds/scripts/Auto-Update-MSUs.ps1
-    condition: eq('${{ parameters.runMsuAutoUpdate }}', true)
-    displayName: "⬇️ Auto‑Download Latest MSUs"
-
-  # 6. DRY RUN
-  - powershell: |
-      Set-Location C:\WIMBUILD\scripts
-      ./Harden-WIM.ps1 `
-        -IsoPath "C:\WIMBUILD\iso\dummy2022.iso" `
-        -UpdatesPath "C:\WIMBUILD\updates\2022" `
-        -GpoPath "C:\WIMBUILD\gpo" `
-        -OutputIso "C:\WIMBUILD\DryRun.iso" `
-        -DryRun
-    condition: eq('${{ parameters.runDryRun }}', true)
-    displayName: "🧪 Harden-WIM Dry Run Simulation"
-
-  # 7. LOCATE ISOs
-  - powershell: |
-      $iso2022 = Get-ChildItem "C:\WIMBUILD\iso" | Where-Object { $_.Name -match "2022" } | Select-Object -Expand FullName -ErrorAction Ignore
-      $iso2025 = Get-ChildItem "C:\WIMBUILD\iso" | Where-Object { $_.Name -match "2025" } | Select-Object -Expand FullName -ErrorAction Ignore
-
-      if (-not $iso2022 -and ${{ parameters.harden2022 }}) { Write-Error "Missing 2022 ISO" }
-      if (-not $iso2025 -and ${{ parameters.harden2025 }}) { Write-Error "Missing 2025 ISO" }
-
-      Set-Content "C:\WIMBUILD\iso\resolved2022.txt" $iso2022
-      Set-Content "C:\WIMBUILD\iso\resolved2025.txt" $iso2025
-    displayName: "🔎 Locate ISOs"
-
-  # 8. HARDEN 2022
-  - powershell: |
-      $iso2022 = Get-Content "C:\WIMBUILD\iso\resolved2022.txt"
-      Set-Location C:\WIMBUILD\scripts
-      ./Harden-WIM.ps1 `
-        -IsoPath $iso2022 `
-        -UpdatesPath "C:\WIMBUILD\updates\2022" `
-        -GpoPath "C:\WIMBUILD\gpo" `
-        -OutputIso "C:\WIMBUILD\Hardened2022.iso"
-    condition: eq('${{ parameters.harden2022 }}', true)
-    displayName: "🔥 Harden Windows Server 2022"
-
-  # 9. HARDEN 2025
-  - powershell: |
-      $iso2025 = Get-Content "C:\WIMBUILD\iso\resolved2025.txt"
-      Set-Location C:\WIMBUILD\scripts
-      ./Harden-WIM.ps1 `
-        -IsoPath $iso2025 `
-        -UpdatesPath "C:\WIMBUILD\updates\2025" `
-        -GpoPath "C:\WIMBUILD\gpo" `
-        -OutputIso "C:\WIMBUILD\Hardened2025.iso"
-    condition: eq('${{ parameters.harden2025 }}', true)
-    displayName: "🔥 Harden Windows Server 2025"
-
-  # 10. PUBLISH OUTPUT
-  - task: PublishBuildArtifacts@1
-    inputs:
-      PathtoPublish: "C:\WIMBUILD\Hardened2022.iso"
-      ArtifactName: "Hardened-Server2022"
-    condition: eq('${{ parameters.harden2022 }}', true)
-    displayName: "📦 Publish Hardened 2022 ISO"
-
-  - task: PublishBuildArtifacts@1
-    inputs:
-      PathtoPublish: "C:\WIMBUILD\Hardened2025.iso"
-      ArtifactName: "Hardened-Server2025"
-    condition: eq('${{ parameters.harden2025 }}', true)
-    displayName: "📦 Publish Hardened 2025 ISO"
-
-  # 11. MIRROR TO GITHUB
-  - powershell: |
-      Write-Host "Running GitHub Mirror..."
+      Write-Host "Triggering GitHub Mirror..."
       ./github-mirror.yml
-    condition: eq('${{ parameters.runGithubMirror }}', true)
-    displayName: "🔁 GitHub Mirror Sync"
+    displayName: "Run GitHub Mirror"
+
+#############################################################
+# MONTHLY SCHEDULE — MUST BE LAST
+#############################################################
+schedules:
+- cron: "0 3 15-21 * 2"
+  displayName: "Third Tuesday Monthly Build"
+  branches:
+    include:
+      - main
+  always: true
