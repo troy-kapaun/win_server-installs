@@ -1,19 +1,22 @@
-trigger:
+trigger: none   # Mirror should NOT trigger on commits
+
+schedules:
+- cron: "0 3 * * 1"     # Every Monday at 03:00 AM
+  displayName: "Weekly GitHub Mirror Sync"
   branches:
     include:
       - main
+  always: true
 
 pool:
   vmImage: 'windows-latest'
 
 variables:
-- group: github-secrets      # Contains GITHUB_PAT
+- group: github-secrets   # Contains GITHUB_PAT
 
 steps:
 
-###############################################################################
-# 1. Clone Azure DevOps repo using System.AccessToken (full clone)
-###############################################################################
+# 1. Clone Azure DevOps Repo Using System.AccessToken
 - powershell: |
     Write-Host "Cloning Azure DevOps repo with full history..."
 
@@ -24,76 +27,50 @@ steps:
     SYSTEM_ACCESSTOKEN: $(System.AccessToken)
   displayName: "Clone ADO repo (full history)"
 
-###############################################################################
-# 2. Install Java (needed for BFG Repo-Cleaner)
-###############################################################################
+# 2. Install Java (Required for BFG)
 - powershell: |
     Write-Host "Installing Java (required for BFG)..."
     choco install jre8 -y
-  displayName: "Install Java Runtime"
+  displayName: "Install Java"
 
-###############################################################################
-# 3. Download BFG Repo Cleaner JAR
-###############################################################################
+# 3. Copy local BFG JAR from repository
 - powershell: |
-    Write-Host "Using local BFG JAR..."
+    Write-Host "Using bundled BFG JAR from repo..."
     Copy-Item "$(Build.SourcesDirectory)\tools\bfg.jar" "bfg.jar"
-  displayName: "Use Local BFG Repo Cleaner"
+  displayName: "Use Local BFG JAR"
 
-###############################################################################
-# 4. Convert repo to a bare clone (required by BFG)
-###############################################################################
+# 4. Prepare bare repo for BFG cleaning
 - powershell: |
-    Write-Host "Converting to bare clone for BFG processing..."
-
-    cd repo
-    git fetch --all
-    cd ..
-
     git clone --bare repo repo.bare
-  displayName: "Create bare clone for BFG"
+  displayName: "Create Bare Repo (for BFG)"
 
-###############################################################################
-# 5. RUN BFG: Strip large binaries (>50MB) from history
-###############################################################################
+# 5. Run BFG to strip large blobs (>50MB)
 - powershell: |
-    Write-Host "Running BFG to remove large files (>50MB)..."
-
+    Write-Host "Running BFG Cleanup..."
     java -jar bfg.jar --strip-blobs-bigger-than 50M repo.bare
-  displayName: "Run BFG Cleanup (>50MB)"
+  displayName: "BFG Cleanup"
 
-###############################################################################
-# 6. Apply changes to bare repo and checkout clean repo
-###############################################################################
+# 6. Git GC after BFG
 - powershell: |
     cd repo.bare
-
-    Write-Host "Applying BFG cleanup..."
-
     git reflog expire --expire=now --all
     git gc --prune=now --aggressive
-  displayName: "Git GC After BFG"
+  displayName: "Garbage Collect After BFG"
 
-# Re-checkout cleaned repo
+# 7. Checkout clean repo
 - powershell: |
-    Write-Host "Checking out cleaned repository..."
     git clone repo.bare cleaned_repo
-  displayName: "Checkout Cleaned Repo"
+  displayName: "Checkout Cleaned Repository"
 
-###############################################################################
-# 7. Enable Git LFS on cleaned repo
-###############################################################################
+# 8. Install Git LFS & Track Large Types
 - powershell: |
-    Write-Host "Installing Git LFS..."
     choco install git-lfs -y
     git lfs install
   displayName: "Install Git LFS"
 
 - powershell: |
-    Write-Host "Configuring Git LFS tracking for large file types..."
     cd cleaned_repo
 
-    # Set identity for the commit
     git config user.email "ado-mirror@dev.azure.com"
     git config user.name "Azure DevOps Mirror Bot"
 
@@ -108,17 +85,14 @@ steps:
     git add .gitattributes
 
     try {
-        git commit -m "Add Git LFS tracking (post-BFG)"
-        Write-Host "✅ LFS tracking committed."
+        git commit -m "Enable LFS tracking"
     }
     catch {
-        Write-Host "ℹ️ No changes to commit — likely already committed."
+        Write-Host "No changes needed for LFS."
     }
   displayName: "Enable Git LFS Tracking"
 
-###############################################################################
-# 8. Add GitHub remote to cleaned repo
-###############################################################################
+# 9. Add GitHub Remote
 - powershell: |
     cd cleaned_repo
 
@@ -128,20 +102,18 @@ steps:
 
     $githubUrl = "https://$(GITHUB_PAT)@github.com/troy-kapaun/win_server-installs.git"
     git remote add github $githubUrl
-
     git remote -v
   displayName: "Add GitHub Remote"
 
-###############################################################################
-# 9. Mirror cleaned history to GitHub
-###############################################################################
+# 10. Push Complete Cleaned History to GitHub
 - powershell: |
     cd cleaned_repo
 
-    Write-Host "Pushing cleaned repo to GitHub..."
-
+    Write-Host "Pushing all branches..."
     git push github --force --all
+
+    Write-Host "Pushing tags..."
     git push github --force --tags
 
-    Write-Host "✅ MIRROR COMPLETE — CLEANED WITH BFG + LFS"
-  displayName: "Push Cleaned Repo to GitHub"
+    Write-Host "✅ GitHub Mirror Completed Successfully"
+  displayName: "Mirror to GitHub"
