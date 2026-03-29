@@ -24,7 +24,6 @@ steps:
     SYSTEM_ACCESSTOKEN: $(System.AccessToken)
   displayName: "Clone ADO repo (full history)"
 
-
 ###############################################################################
 # 2. Install Java (needed for BFG Repo-Cleaner)
 ###############################################################################
@@ -33,20 +32,13 @@ steps:
     choco install jre8 -y
   displayName: "Install Java Runtime"
 
-
 ###############################################################################
 # 3. Download BFG Repo Cleaner JAR
 ###############################################################################
 - powershell: |
-    Write-Host "Downloading BFG Repo Cleaner from Maven Central..."
-
-    $url = "https://repo1.maven.org/maven2/com/madgag/bfg-repo-cleaner/1.14.0/bfg-repo-cleaner-1.14.0.jar"
-    Invoke-WebRequest -Uri $url `
-                      -OutFile "bfg.jar" `
-                      -Headers @{ "User-Agent" = "Mozilla/5.0" }
-  displayName: "Download BFG Repo Cleaner (Maven)"
-
-
+    Write-Host "Using local BFG JAR..."
+    Copy-Item "$(Build.SourcesDirectory)\tools\bfg.jar" "bfg.jar"
+  displayName: "Use Local BFG Repo Cleaner"
 
 ###############################################################################
 # 4. Convert repo to a bare clone (required by BFG)
@@ -61,7 +53,6 @@ steps:
     git clone --bare repo repo.bare
   displayName: "Create bare clone for BFG"
 
-
 ###############################################################################
 # 5. RUN BFG: Strip large binaries (>50MB) from history
 ###############################################################################
@@ -70,7 +61,6 @@ steps:
 
     java -jar bfg.jar --strip-blobs-bigger-than 50M repo.bare
   displayName: "Run BFG Cleanup (>50MB)"
-
 
 ###############################################################################
 # 6. Apply changes to bare repo and checkout clean repo
@@ -89,7 +79,6 @@ steps:
     Write-Host "Checking out cleaned repository..."
     git clone repo.bare cleaned_repo
   displayName: "Checkout Cleaned Repo"
-
 
 ###############################################################################
 # 7. Enable Git LFS on cleaned repo
@@ -119,7 +108,6 @@ steps:
     git commit -m "Add Git LFS tracking (post-BFG)" || echo "No changes"
   displayName: "Enable Git LFS Tracking"
 
-
 ###############################################################################
 # 8. Add GitHub remote to cleaned repo
 ###############################################################################
@@ -135,7 +123,6 @@ steps:
 
     git remote -v
   displayName: "Add GitHub Remote"
-
 
 ###############################################################################
 # 9. Mirror cleaned history to GitHub
