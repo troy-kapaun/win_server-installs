@@ -33,66 +33,27 @@ jobs:
       ./ISO_Builds/scripts/Validate-Repo.ps1
     displayName: "Validate Repo"
 
-  - task: Cache@2
-    inputs:
-      key: 'win-adk'
-      path: 'C:\ADKCache'
-    displayName: "Cache ADK"
-
   - powershell: |
       $ErrorActionPreference = 'Stop'
-      New-Item -ItemType Directory -Force -Path 'C:\ADKCache' | Out-Null
+      $dest = 'C:\ADKTools\Oscdimg'
+      New-Item $dest -ItemType Directory -Force | Out-Null
 
-      # Force TLS 1.2 - required for Microsoft download endpoints on PS 5.1
-      [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+      Write-Host "Downloading ADK Oscdimg tools from Azure Artifacts..."
+      az artifacts universal download `
+        --feed win-server-isos `
+        --name adk-oscdimg-tools `
+        --version '*' `
+        --path $dest
 
-      if (!(Test-Path 'C:\ADKCache\done.flag')) {
-        # Download the ADK online installer (UseBasicParsing required on Server Core)
-        Write-Host "Downloading ADK installer..."
-        Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/?linkid=2247041' `
-          -OutFile 'C:\ADKCache\adksetup.exe' -UseBasicParsing
+      Write-Host "ADK tools downloaded:"
+      Get-ChildItem $dest | Format-Table Name, Length -AutoSize
 
-        # Validate the download is a real PE executable
-        $file = Get-Item 'C:\ADKCache\adksetup.exe'
-        if ($file.Length -lt 1MB) {
-          throw "adksetup.exe is only $($file.Length) bytes - download likely failed"
-        }
-        $header = [System.IO.File]::ReadAllBytes($file.FullName)[0..1]
-        if ($header[0] -ne 0x4D -or $header[1] -ne 0x5A) {
-          throw "adksetup.exe is not a valid PE executable (missing MZ header)"
-        }
-
-        # Use /layout to download the full offline payload
-        Write-Host "Downloading ADK offline layout..."
-        $layout = Start-Process 'C:\ADKCache\adksetup.exe' `
-          -ArgumentList '/quiet /layout C:\ADKCache\layout' `
-          -Wait -PassThru
-        if ($layout.ExitCode -ne 0) {
-          throw "ADK layout download failed with exit code $($layout.ExitCode)"
-        }
-
-        # Install from the offline layout
-        Write-Host "Installing Deployment Tools from offline layout..."
-        $install = Start-Process 'C:\ADKCache\layout\adksetup.exe' `
-          -ArgumentList '/quiet /norestart /features OptionId.DeploymentTools' `
-          -Wait -PassThru
-        if ($install.ExitCode -ne 0) {
-          throw "ADK install failed with exit code $($install.ExitCode)"
-        }
-
-        New-Item -ItemType File -Path 'C:\ADKCache\done.flag' | Out-Null
-        Write-Host "ADK installed successfully."
-      } else {
-        Write-Host "ADK already cached - installing from offline layout..."
-        $install = Start-Process 'C:\ADKCache\layout\adksetup.exe' `
-          -ArgumentList '/quiet /norestart /features OptionId.DeploymentTools' `
-          -Wait -PassThru
-        if ($install.ExitCode -ne 0) {
-          throw "ADK install failed with exit code $($install.ExitCode)"
-        }
-        Write-Host "ADK installed from cache."
+      # Verify oscdimg.exe is present
+      if (!(Test-Path "$dest\oscdimg.exe")) {
+        throw "oscdimg.exe not found after download"
       }
-    displayName: "Install ADK"
+      Write-Host "[OK] oscdimg.exe ready at $dest\oscdimg.exe"
+    displayName: "Download ADK Tools"
 
   - powershell: |
       if (Test-Path 'C:\WIMBUILD') { Remove-Item 'C:\WIMBUILD' -Recurse -Force }
