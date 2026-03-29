@@ -46,7 +46,7 @@ jobs:
     displayName: "Cache ADK"
 
   - powershell: |
-     ✅ Ensure folder exists BEFORE downloading
+  # ✅ Ensure folder exists BEFORE downloading
       New-Item -ItemType Directory -Force -Path 'C:\ADKCache' | Out-Null
 
       if (!(Test-Path 'C:\ADKCache\done.flag')) {
@@ -59,6 +59,7 @@ jobs:
         New-Item -ItemType File -Path 'C:\ADKCache\done.flag' | Out-Null
       }
     displayName: "Install ADK"
+
 
   - powershell: |
       if (Test-Path 'C:\WIMBUILD') { Remove-Item 'C:\WIMBUILD' -Recurse -Force }
