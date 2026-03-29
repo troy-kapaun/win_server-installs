@@ -5,7 +5,7 @@ $errors = @()
 
 function Check-Path($Path, $Description) {
     if (!(Test-Path $Path)) {
-        $errors += "[FAIL] Missing: $Description ($Path)"
+        $script:errors += "[FAIL] Missing: $Description ($Path)"
     } else {
         Write-Host "[OK] $Description"
     }
