@@ -102,7 +102,10 @@ jobs:
 
   - powershell: |
       $version = $env:VERSION
-      $iso = (Get-ChildItem 'C:\WIMBUILD\iso').FullName
+      $iso = (Get-ChildItem 'C:\WIMBUILD\iso' -Filter '*.iso' | Select-Object -First 1).FullName
+      if (!$iso) {
+        throw "No .iso file found in C:\WIMBUILD\iso"
+      }
       $updates = "C:\WIMBUILD\updates\$version"
       $outiso = "C:\WIMBUILD\Hardened$version.iso"
 
