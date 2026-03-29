@@ -11,6 +11,11 @@
     [Parameter(Mandatory=$true)]
     [string]$OutputIso,
 
+    [ValidateSet('CST','EST','MST','PST')]
+    [string]$Timezone,
+
+    [string]$UnattendPath,
+
     [switch]$DryRun
 )
 
@@ -20,7 +25,7 @@ Write-Host " Output ISO     : $OutputIso"
 Write-Host "===============================================" -ForegroundColor Cyan
 
 if ($DryRun) {
-    Write-Host "`n*** DRY RUN — NO CHANGES WILL BE MADE ***`n" -ForegroundColor Yellow
+    Write-Host "`n*** DRY RUN - NO CHANGES WILL BE MADE ***`n" -ForegroundColor Yellow
     Write-Host "ISO Path:      $IsoPath"
     Write-Host "Updates Path:  $UpdatesPath"
     Write-Host "GPO Path:      $GpoPath"
@@ -30,32 +35,36 @@ if ($DryRun) {
     Write-Host "Validating paths..."
 
     foreach ($p in @($IsoPath,$UpdatesPath,$GpoPath)) {
-        if (!(Test-Path $p)) { Write-Host "❌ Missing: $p" } else { Write-Host "✅ Found: $p" }
+        if (!(Test-Path $p)) { Write-Host "[FAIL] Missing: $p" } else { Write-Host "[OK] Found: $p" }
     }
 
     # Validate output directory
     $OutDir = Split-Path $OutputIso -Parent
     if (!(Test-Path $OutDir)) {
-        Write-Host "❌ Output directory does not exist: $OutDir"
+        Write-Host "[FAIL] Output directory does not exist: $OutDir"
     } else {
-        Write-Host "✅ Output directory exists: $OutDir"
+        Write-Host "[OK] Output directory exists: $OutDir"
     }
 
     Write-Host "`nSimulated next steps:"
     Write-Host "- Would mount ISO"
     Write-Host "- Would extract ISO"
-    Write-Host "- Would convert ESD → WIM (if necessary)"
+    Write-Host "- Would convert ESD -> WIM (if necessary)"
     Write-Host "- Would mount WIM Index 2"
     Write-Host "- Would inject MSU updates"
     Write-Host "- Would apply Security.csv baseline"
     Write-Host "- Would apply GPO (GroupPolicy + ADMX)"
     Write-Host "- Would set up SetupComplete.cmd audit restore"
+    if ($Timezone) {
+        Write-Host "- Would inject unattend_$Timezone.xml into Sysprep + Panther"
+        Write-Host "- Would apply unattend via DISM /Apply-Unattend"
+    }
     Write-Host "- Would commit WIM and build final ISO"
-    Write-Host "`nDry‑run completed — exiting before image operations."
+    Write-Host "`nDry-run completed - exiting before image operations."
     exit 0
 }
 
-# (Full script continues unchanged…)
+# (Full script continues below)
 
 # ===============================
 # 0. Prepare Working Directories
@@ -91,9 +100,13 @@ Write-Host "Mounted ISO at $Drive"
 Write-Host "[2] Extracting ISO..."
 robocopy "$Drive\" $Extract /MIR | Out-Null
 
+# Remove read-only attributes inherited from the ISO mount
+Write-Host "Clearing read-only attributes on extracted files..."
+attrib -R "$Extract\*.*" /S /D
+
 
 # ===============================
-# 3. Convert ESD → WIM if needed
+# 3. Convert ESD -> WIM if needed
 # ===============================
 Write-Host "[3] Checking WIM/ESD..."
 
@@ -101,13 +114,13 @@ $WIM = "$Extract\sources\install.wim"
 $ESD = "$Extract\sources\install.esd"
 
 if (Test-Path $ESD) {
-    Write-Host "Converting install.esd → install.wim ..."
+    Write-Host "Converting install.esd -> install.wim ..."
     dism /Export-Image /SourceImageFile:$ESD /DestinationImageFile:$WIM /Compress:max /SourceIndex:1
     Remove-Item $ESD -Force
 }
 
 if (!(Test-Path $WIM)) {
-    Write-Host "❌ install.wim NOT FOUND!"
+    Write-Host "[FAIL] install.wim NOT FOUND!"
     exit 1
 }
 
@@ -123,7 +136,7 @@ $Index = 2
 dism /Mount-WIM /WimFile:$WIM /Index:$Index /MountDir:$MountWIM
 
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "❌ Failed to mount WIM"
+    Write-Host "[FAIL] Failed to mount WIM"
     exit 1
 }
 
@@ -193,6 +206,52 @@ Copy-Item "$GpoPath\Audit.ini" "$Scripts\Audit.ini" -Force
 
 
 # ===============================
+# 9b. Inject Sysprep Unattend
+# ===============================
+if ($Timezone -and $UnattendPath) {
+    Write-Host "[9b] Injecting Sysprep unattend for timezone: $Timezone"
+
+    $unattendXml = Join-Path $UnattendPath "unattend_$Timezone.xml"
+    $sysprepCmd  = Join-Path $UnattendPath "Sysprep_$Timezone.cmd"
+
+    if (!(Test-Path $unattendXml)) {
+        Write-Host "[FAIL] Unattend file not found: $unattendXml"
+        exit 1
+    }
+
+    # Copy unattend.xml to Sysprep directory in the offline image
+    $sysprepDir = "$MountWIM\Windows\System32\Sysprep"
+    Copy-Item $unattendXml "$sysprepDir\unattend_$Timezone.xml" -Force
+    Write-Host "[OK] Copied unattend_$Timezone.xml to $sysprepDir"
+
+    # Also place it as the default unattend.xml for Windows Setup
+    $pantherDir = "$MountWIM\Windows\Panther"
+    New-Item $pantherDir -ItemType Directory -Force | Out-Null
+    Copy-Item $unattendXml "$pantherDir\Unattend.xml" -Force
+    Write-Host "[OK] Copied Unattend.xml to $pantherDir"
+
+    # Copy the sysprep batch file if it exists
+    if (Test-Path $sysprepCmd) {
+        Copy-Item $sysprepCmd "$sysprepDir\Sysprep_$Timezone.cmd" -Force
+        Write-Host "[OK] Copied Sysprep_$Timezone.cmd to $sysprepDir"
+    }
+
+    # Apply the unattend to the image via DISM
+    Write-Host "Applying unattend.xml to offline image via DISM..."
+    dism /Image:$MountWIM /Apply-Unattend:"$pantherDir\Unattend.xml"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[WARNING] DISM /Apply-Unattend returned exit code $LASTEXITCODE (non-fatal)"
+    } else {
+        Write-Host "[OK] Unattend applied to offline image"
+    }
+} elseif ($Timezone) {
+    Write-Host "[9b] Skipping unattend injection - no UnattendPath provided"
+} else {
+    Write-Host "[9b] Skipping unattend injection - no Timezone specified"
+}
+
+
+# ===============================
 # 10. Cleanup Offline Registry
 # ===============================
 Write-Host "[10] Unloading registry hives..."
@@ -215,12 +274,12 @@ dism /Unmount-WIM /MountDir:$MountWIM /Commit
 # ===============================
 Write-Host "[12] Building final ISO..."
 
-$Oscd = "C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\amd64\Oscdimg\oscdimg.exe"
+$Oscd = "C:\ADKTools\Oscdimg\oscdimg.exe"
 
 & $Oscd -m -o -u2 -udfver102 $Extract $OutputIso
 
 
 Write-Host "==============================================="
-Write-Host " ✅ Hardened image built:"
+Write-Host " [OK] Hardened image built:"
 Write-Host "     $OutputIso"
 Write-Host "==============================================="

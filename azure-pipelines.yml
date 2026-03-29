@@ -15,8 +15,10 @@ jobs:
     matrix:
       WS2022:
         VERSION: "2022"
+        TIMEZONE: "CST"
       WS2025:
         VERSION: "2025"
+        TIMEZONE: "CST"
 
   steps:
 
@@ -101,26 +103,51 @@ jobs:
       VERSION: $(VERSION)
 
   - powershell: |
+      $ErrorActionPreference = 'Stop'
+      $dest = 'C:\WIMBUILD\unattend'
+      New-Item $dest -ItemType Directory -Force | Out-Null
+
+      Write-Host "Downloading Sysprep unattend files from Azure Artifacts..."
+      az artifacts universal download `
+        --organization $(System.CollectionUri) `
+        --project "$(System.TeamProject)" `
+        --scope project `
+        --feed win-server-isos `
+        --name sysprep-unattend `
+        --version '*' `
+        --path $dest
+
+      Write-Host "Unattend files downloaded:"
+      Get-ChildItem $dest | Format-Table Name, Length -AutoSize
+    displayName: "Download Unattend Files"
+    env:
+      AZURE_DEVOPS_EXT_PAT: $(System.AccessToken)
+
+  - powershell: |
       $version = $env:VERSION
+      $tz = $env:TIMEZONE
       $iso = (Get-ChildItem 'C:\WIMBUILD\iso' -Filter '*.iso' | Select-Object -First 1).FullName
       if (!$iso) {
         throw "No .iso file found in C:\WIMBUILD\iso"
       }
       $updates = "C:\WIMBUILD\updates\$version"
-      $outiso = "C:\WIMBUILD\Hardened$version.iso"
+      $outiso = "C:\WIMBUILD\Hardened${version}_$tz.iso"
 
+      Write-Host "Timezone: $tz"
       Set-Location 'C:\WIMBUILD\scripts'
-      ./Harden-WIM.ps1 -IsoPath $iso -UpdatesPath $updates -GpoPath 'C:\WIMBUILD\gpo' -OutputIso $outiso
+      ./Harden-WIM.ps1 -IsoPath $iso -UpdatesPath $updates -GpoPath 'C:\WIMBUILD\gpo' -OutputIso $outiso -Timezone $tz -UnattendPath 'C:\WIMBUILD\unattend'
     displayName: "Harden Image"
     env:
       VERSION: $(VERSION)
+      TIMEZONE: $(TIMEZONE)
 
   - task: PublishBuildArtifacts@1
     inputs:
-      PathtoPublish: "C:\\WIMBUILD\\Hardened$(VERSION).iso"
-      ArtifactName: "Hardened-$(VERSION)"
+      PathtoPublish: "C:\\WIMBUILD\\Hardened$(VERSION)_$(TIMEZONE).iso"
+      ArtifactName: "Hardened-$(VERSION)-$(TIMEZONE)"
     env:
       VERSION: $(VERSION)
+      TIMEZONE: $(TIMEZONE)
     displayName: "Publish ISO"
 
 
