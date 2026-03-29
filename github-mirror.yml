@@ -38,13 +38,13 @@ steps:
 # 3. Download BFG Repo Cleaner JAR
 ###############################################################################
 - powershell: |
-    Write-Host "Downloading BFG Repo Cleaner with curl..."
+    Write-Host "Downloading BFG Repo Cleaner from Maven Central..."
 
-    curl -L `
-      -A "Mozilla/5.0" `
-      -o "bfg.jar" `
-      https://github.com/rtyley/bfg-repo-cleaner/releases/latest/download/bfg.jar
-  displayName: "Download BFG via curl"
+    $url = "https://repo1.maven.org/maven2/com/madgag/bfg-repo-cleaner/1.14.0/bfg-repo-cleaner-1.14.0.jar"
+    Invoke-WebRequest -Uri $url `
+                      -OutFile "bfg.jar" `
+                      -Headers @{ "User-Agent" = "Mozilla/5.0" }
+  displayName: "Download BFG Repo Cleaner (Maven)"
 
 
 
