@@ -39,12 +39,12 @@ Write-Host "`n[3] GPO Baseline Files"
 Check-Path "$root\gpo\Security.csv" "Security.csv baseline"
 Check-Path "$root\gpo\Audit.ini"    "Audit.ini baseline"
 
-Write-Host "`n[4] Check ADK (oscdimg.exe) — skipped until ADK is installed later"
+Write-Host "`n[4] Check ADK (oscdimg.exe) - skipped until ADK is installed later"
 $Oscd = "C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\amd64\Oscdimg\oscdimg.exe"
 if (Test-Path $Oscd) {
     Write-Host "[OK] ADK Deployment Tools found"
 } else {
-    Write-Host "[WARNING] ADK is not installed yet — skipping check"
+    Write-Host "[WARNING] ADK is not installed yet - skipping check"
 }
 
 Write-Host "`n[5] Check DISM"
