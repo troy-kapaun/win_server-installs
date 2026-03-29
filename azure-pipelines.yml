@@ -67,6 +67,7 @@ jobs:
     displayName: "Prepare Workdir"
 
   - powershell: |
+      $ErrorActionPreference = 'Stop'
       $version = $env:VERSION
       $feed = 'win-server-isos'
       $pkg = "windows-server-iso-$version"
@@ -74,6 +75,7 @@ jobs:
 
       New-Item $dest -ItemType Directory -Force | Out-Null
 
+      Write-Host "Downloading $pkg from Azure Artifacts..."
       az artifacts universal download `
         --organization $(System.CollectionUri) `
         --project "$(System.TeamProject)" `
@@ -83,8 +85,16 @@ jobs:
         --version '*' `
         --path $dest
 
-      Write-Host "Downloaded ISO:"
-      Get-ChildItem $dest
+      if ($LASTEXITCODE -ne 0) {
+        throw "Failed to download $pkg from feed '$feed'"
+      }
+
+      # Verify an ISO file was actually downloaded
+      $isoFile = Get-ChildItem $dest -Filter '*.iso' | Select-Object -First 1
+      if (!$isoFile) {
+        throw "No .iso file found in $dest after download"
+      }
+      Write-Host "[OK] Downloaded: $($isoFile.Name) ($([math]::Round($isoFile.Length/1GB,2)) GB)"
     displayName: "Download ISO"
     env:
       AZURE_DEVOPS_EXT_PAT: $(System.AccessToken)
