@@ -43,12 +43,26 @@ jobs:
       $ErrorActionPreference = 'Stop'
       New-Item -ItemType Directory -Force -Path 'C:\ADKCache' | Out-Null
 
-      if (!(Test-Path 'C:\ADKCache\done.flag')) {
-        # Download the ADK online installer
-        Write-Host "Downloading ADK installer..."
-        Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/?linkid=2247041' -OutFile 'C:\ADKCache\adksetup.exe'
+      # Force TLS 1.2 - required for Microsoft download endpoints on PS 5.1
+      [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-        # Use /layout to download the full offline payload first
+      if (!(Test-Path 'C:\ADKCache\done.flag')) {
+        # Download the ADK online installer (UseBasicParsing required on Server Core)
+        Write-Host "Downloading ADK installer..."
+        Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/?linkid=2247041' `
+          -OutFile 'C:\ADKCache\adksetup.exe' -UseBasicParsing
+
+        # Validate the download is a real PE executable
+        $file = Get-Item 'C:\ADKCache\adksetup.exe'
+        if ($file.Length -lt 1MB) {
+          throw "adksetup.exe is only $($file.Length) bytes - download likely failed"
+        }
+        $header = [System.IO.File]::ReadAllBytes($file.FullName)[0..1]
+        if ($header[0] -ne 0x4D -or $header[1] -ne 0x5A) {
+          throw "adksetup.exe is not a valid PE executable (missing MZ header)"
+        }
+
+        # Use /layout to download the full offline payload
         Write-Host "Downloading ADK offline layout..."
         $layout = Start-Process 'C:\ADKCache\adksetup.exe' `
           -ArgumentList '/quiet /layout C:\ADKCache\layout' `
