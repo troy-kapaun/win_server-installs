@@ -40,6 +40,9 @@ jobs:
 
       Write-Host "Downloading ADK Oscdimg tools from Azure Artifacts..."
       az artifacts universal download `
+        --organization $(System.CollectionUri) `
+        --project "$(System.TeamProject)" `
+        --scope project `
         --feed win-server-isos `
         --name adk-oscdimg-tools `
         --version '*' `
@@ -54,6 +57,8 @@ jobs:
       }
       Write-Host "[OK] oscdimg.exe ready at $dest\oscdimg.exe"
     displayName: "Download ADK Tools"
+    env:
+      AZURE_DEVOPS_EXT_PAT: $(System.AccessToken)
 
   - powershell: |
       if (Test-Path 'C:\WIMBUILD') { Remove-Item 'C:\WIMBUILD' -Recurse -Force }
@@ -70,6 +75,9 @@ jobs:
       New-Item $dest -ItemType Directory -Force | Out-Null
 
       az artifacts universal download `
+        --organization $(System.CollectionUri) `
+        --project "$(System.TeamProject)" `
+        --scope project `
         --feed $feed `
         --name $pkg `
         --version '*' `
@@ -79,6 +87,7 @@ jobs:
       Get-ChildItem $dest
     displayName: "Download ISO"
     env:
+      AZURE_DEVOPS_EXT_PAT: $(System.AccessToken)
       VERSION: $(VERSION)
 
   - powershell: |
