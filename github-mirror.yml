@@ -90,9 +90,10 @@ steps:
   displayName: "Install Git LFS"
 
 - powershell: |
-    Write-Host "Enabling LFS pointer tracking..."
+    Write-Host "Configuring Git LFS tracking for large file types..."
     cd cleaned_repo
 
+    # Set identity for the commit
     git config user.email "ado-mirror@dev.azure.com"
     git config user.name "Azure DevOps Mirror Bot"
 
@@ -105,7 +106,14 @@ steps:
     git lfs track "*.cab"
 
     git add .gitattributes
-    git commit -m "Add Git LFS tracking (post-BFG)" || echo "No changes"
+
+    try {
+        git commit -m "Add Git LFS tracking (post-BFG)"
+        Write-Host "✅ LFS tracking committed."
+    }
+    catch {
+        Write-Host "ℹ️ No changes to commit — likely already committed."
+    }
   displayName: "Enable Git LFS Tracking"
 
 ###############################################################################
