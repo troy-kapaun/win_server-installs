@@ -46,9 +46,16 @@ jobs:
     displayName: "Cache ADK"
 
   - powershell: |
+     ✅ Ensure folder exists BEFORE downloading
+      New-Item -ItemType Directory -Force -Path 'C:\ADKCache' | Out-Null
+
       if (!(Test-Path 'C:\ADKCache\done.flag')) {
+        Write-Host "Downloading ADK..."
         Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/?linkid=2247041' -OutFile 'C:\ADKCache\adksetup.exe'
+
+        Write-Host "Installing Deployment Tools..."
         Start-Process 'C:\ADKCache\adksetup.exe' -ArgumentList '/quiet /norestart /features OptionId.DeploymentTools' -Wait
+
         New-Item -ItemType File -Path 'C:\ADKCache\done.flag' | Out-Null
       }
     displayName: "Install ADK"
