@@ -184,6 +184,14 @@ secedit /configure /db $DB /cfg $CSV /areas SECURITYPOLICY USER_RIGHTS /quiet
 # ===============================
 Write-Host "[8] Injecting GPO baseline..."
 
+# Clear read-only attributes on existing WIM files before overwriting
+if (Test-Path "$MountWIM\Windows\System32\GroupPolicy") {
+    attrib -R "$MountWIM\Windows\System32\GroupPolicy\*.*" /S /D
+}
+if (Test-Path "$MountWIM\Windows\PolicyDefinitions") {
+    attrib -R "$MountWIM\Windows\PolicyDefinitions\*.*" /S /D
+}
+
 Copy-Item "$GpoPath\GroupPolicy"        "$MountWIM\Windows\System32\" -Recurse -Force
 Copy-Item "$GpoPath\PolicyDefinitions" "$MountWIM\Windows\"           -Recurse -Force
 
