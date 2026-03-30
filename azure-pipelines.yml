@@ -15,10 +15,10 @@ jobs:
     matrix:
       WS2022:
         VERSION: "2022"
-        TIMEZONE: "CST"
+        TIMEZONE: "CST"  # or EST, MST, PST
       WS2025:
         VERSION: "2025"
-        TIMEZONE: "CST"
+        TIMEZONE: "CST"  # or EST, MST, PST
 
   steps:
 
@@ -122,6 +122,14 @@ jobs:
     displayName: "Download Unattend Files"
     env:
       AZURE_DEVOPS_EXT_PAT: $(System.AccessToken)
+
+  - powershell: |
+      $ErrorActionPreference = 'Stop'
+      Set-Location 'C:\WIMBUILD\scripts'
+      ./Auto-Update-MSUs.ps1 -Version $env:VERSION
+    displayName: "Download Latest MSU Updates"
+    env:
+      VERSION: $(VERSION)
 
   - powershell: |
       $version = $env:VERSION
