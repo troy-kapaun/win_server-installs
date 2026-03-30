@@ -184,12 +184,15 @@ secedit /configure /db $DB /cfg $CSV /areas SECURITYPOLICY USER_RIGHTS /quiet
 # ===============================
 Write-Host "[8] Injecting GPO baseline..."
 
-# Clear read-only attributes on existing WIM files before overwriting
+# WIM-mounted files are owned by TrustedInstaller with restrictive ACLs.
+# Take ownership and grant full control so we can overwrite them.
 if (Test-Path "$MountWIM\Windows\System32\GroupPolicy") {
-    attrib -R "$MountWIM\Windows\System32\GroupPolicy\*.*" /S /D
+    takeown /F "$MountWIM\Windows\System32\GroupPolicy" /R /A /D Y | Out-Null
+    icacls "$MountWIM\Windows\System32\GroupPolicy" /grant Administrators:F /T /Q | Out-Null
 }
 if (Test-Path "$MountWIM\Windows\PolicyDefinitions") {
-    attrib -R "$MountWIM\Windows\PolicyDefinitions\*.*" /S /D
+    takeown /F "$MountWIM\Windows\PolicyDefinitions" /R /A /D Y | Out-Null
+    icacls "$MountWIM\Windows\PolicyDefinitions" /grant Administrators:F /T /Q | Out-Null
 }
 
 Copy-Item "$GpoPath\GroupPolicy"        "$MountWIM\Windows\System32\" -Recurse -Force
