@@ -287,7 +287,23 @@ Write-Host "[12] Building final ISO..."
 
 $Oscd = "C:\ADKTools\Oscdimg\oscdimg.exe"
 
-& $Oscd -m -o -u2 -udfver102 $Extract $OutputIso
+# Boot sector files extracted from the original ISO
+$BiosBoot = "$Extract\boot\etfsboot.com"
+$UefiBoot = "$Extract\efi\microsoft\boot\efisys_noprompt.bin"
+
+if (!(Test-Path $BiosBoot)) { throw "BIOS boot sector not found: $BiosBoot" }
+if (!(Test-Path $UefiBoot)) { throw "UEFI boot sector not found: $UefiBoot" }
+
+# -bootdata:2 creates a dual-boot ISO (BIOS + UEFI)
+#   Entry 1: p0 = BIOS platform, e = no floppy emulation, b = boot sector file
+#   Entry 2: pEF = UEFI platform, e = no floppy emulation, b = boot sector file
+& $Oscd -m -o -u2 -udfver102 `
+    -bootdata:2#p0,e,b"$BiosBoot"#pEF,e,b"$UefiBoot" `
+    $Extract $OutputIso
+
+if ($LASTEXITCODE -ne 0) {
+    throw "oscdimg failed with exit code $LASTEXITCODE"
+}
 
 
 Write-Host "==============================================="
