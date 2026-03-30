@@ -15,7 +15,7 @@ jobs:
     matrix:
       WS2022:
         VERSION: "2022"
-        TIMEZONE: "CST"  # or EST, MST, PST  # or EST, MST, PST
+        TIMEZONE: "CST"  # or EST, MST, PST
       WS2025:
         VERSION: "2025"
         TIMEZONE: "CST"  # or EST, MST, PST
