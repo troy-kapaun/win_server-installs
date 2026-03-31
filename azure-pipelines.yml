@@ -150,10 +150,10 @@ jobs:
       VERSION: $(VERSION)
       TIMEZONE: $(TIMEZONE)
 
-  - task: PublishBuildArtifacts@1
+  - task: PublishPipelineArtifact@1
     inputs:
-      PathtoPublish: "C:\\WIMBUILD\\Hardened$(VERSION)_$(TIMEZONE).iso"
-      ArtifactName: "Hardened-$(VERSION)-$(TIMEZONE)"
+      targetPath: "C:\\WIMBUILD\\Hardened$(VERSION)_$(TIMEZONE).iso"
+      artifact: "Hardened-$(VERSION)-$(TIMEZONE)"
     env:
       VERSION: $(VERSION)
       TIMEZONE: $(TIMEZONE)
