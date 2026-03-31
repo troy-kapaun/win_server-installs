@@ -57,7 +57,6 @@ if ($DryRun) {
     Write-Host "- Would set up SetupComplete.cmd audit restore"
     if ($Timezone) {
         Write-Host "- Would inject unattend_$Timezone.xml into Sysprep + Panther"
-        Write-Host "- Would apply unattend via DISM /Apply-Unattend"
     }
     Write-Host "- Would commit WIM and build final ISO"
     Write-Host "`nDry-run completed - exiting before image operations."
@@ -147,13 +146,33 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "[5] Integrating updates..."
 
 if (Test-Path $UpdatesPath) {
-    foreach ($u in Get-ChildItem $UpdatesPath -Filter *.msu) {
-        Write-Host "Adding update: $($u.Name)"
-        dism /Image:$MountWIM /Add-Package /PackagePath:$u.FullName
+    Write-Host "Updates directory: $UpdatesPath"
+    Write-Host "Directory contents:"
+    Get-ChildItem $UpdatesPath -Recurse | ForEach-Object {
+        Write-Host "  $($_.FullName) ($([math]::Round($_.Length/1MB,1)) MB)"
+    }
+
+    $pkgs = Get-ChildItem $UpdatesPath -Include '*.msu','*.cab' -Recurse
+    Write-Host "Found $(@($pkgs).Count) update package(s) to inject"
+
+    if ($pkgs) {
+        foreach ($u in $pkgs) {
+            Write-Host "Adding update: $($u.Name) ($([math]::Round($u.Length/1MB,1)) MB)"
+            dism /Image:$MountWIM /Add-Package /PackagePath:$u.FullName
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "[WARNING] DISM returned exit code $LASTEXITCODE for $($u.Name)"
+            } else {
+                Write-Host "[OK] Successfully injected $($u.Name)"
+            }
+        }
+    } else {
+        Write-Host "[WARNING] Updates directory exists but contains no .msu or .cab files"
+        Write-Host "[WARNING] Check that Auto-Update-MSUs.ps1 downloaded updates successfully"
     }
 }
 else {
-    Write-Host "No updates found."
+    Write-Host "[FAIL] Updates directory not found at $UpdatesPath"
+    exit 1
 }
 
 
@@ -247,14 +266,12 @@ if ($Timezone -and $UnattendPath) {
         Write-Host "[OK] Copied Sysprep_$Timezone.cmd to $sysprepDir"
     }
 
-    # Apply the unattend to the image via DISM
-    Write-Host "Applying unattend.xml to offline image via DISM..."
-    dism /Image:$MountWIM /Apply-Unattend:"$pantherDir\Unattend.xml"
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "[WARNING] DISM /Apply-Unattend returned exit code $LASTEXITCODE (non-fatal)"
-    } else {
-        Write-Host "[OK] Unattend applied to offline image"
-    }
+    # NOTE: We do NOT call "dism /Apply-Unattend" here because the XML contains
+    # specialize/oobeSystem pass settings (UserAccounts, AutoLogon, TimeZone) that
+    # reference account names which cannot be resolved to SIDs against an offline
+    # image (error 1332). Placing Unattend.xml in \Windows\Panther\ is sufficient;
+    # Windows Setup discovers it automatically at first boot.
+    Write-Host "[OK] Unattend will be applied by Windows Setup at first boot"
 } elseif ($Timezone) {
     Write-Host "[9b] Skipping unattend injection - no UnattendPath provided"
 } else {

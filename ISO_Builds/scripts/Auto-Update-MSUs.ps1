@@ -17,48 +17,92 @@ $VersionMap = @{
 $Versions = if ($Version) { @($Version) } else { @('2022','2025') }
 
 $YearMonth = (Get-Date).ToString('yyyy-MM')
+$PrevMonth = (Get-Date).AddMonths(-1).ToString('yyyy-MM')
 
 foreach ($ver in $Versions) {
     $releaseId = $VersionMap[$ver].ReleaseId
     $Dest      = $VersionMap[$ver].Dest
 
-    # Search using the catalog naming convention:
-    #   "YYYY-MM Microsoft server operating system-21H2"  (Server 2022)
-    #   "YYYY-MM Microsoft server operating system-24H2"  (Server 2025)
-    $search = "$YearMonth Microsoft server operating system-$releaseId"
-    Write-Host "Searching: $search"
-
-    $updates = Get-MSCatalogUpdate -Search $search |
-               Where-Object { $_.Title -match 'Cumulative Update' -and $_.Title -match 'x64' } |
-               Sort-Object LastUpdated -Descending |
-               Select-Object -First 1
-
-    # If the current month has no CU yet, fall back to the previous month
-    if (!$updates) {
-        $prevMonth = (Get-Date).AddMonths(-1).ToString('yyyy-MM')
-        $search = "$prevMonth Microsoft server operating system-$releaseId"
-        Write-Host "[INFO] No CU for $YearMonth, trying previous month: $search"
-
-        $updates = Get-MSCatalogUpdate -Search $search |
-                   Where-Object { $_.Title -match 'Cumulative Update' -and $_.Title -match 'x64' } |
-                   Sort-Object LastUpdated -Descending |
-                   Select-Object -First 1
-    }
-
-    if (!$updates) {
-        Write-Host "[WARNING] No cumulative update found for Server $ver ($releaseId)"
-        continue
-    }
-
     if (!(Test-Path $Dest)) { New-Item $Dest -ItemType Directory -Force | Out-Null }
 
-    Write-Host "Downloading $($updates.Title)..."
-    $updates | Save-MSCatalogUpdate -Destination $Dest
+    # ---- 1. OS Cumulative Update ----
+    Write-Host "`n=== OS Cumulative Update for Server $ver ($releaseId) ==="
 
-    $msu = Get-ChildItem $Dest -Filter '*.msu' | Select-Object -First 1
-    if ($msu) {
-        Write-Host "[OK] Saved: $($msu.Name) ($([math]::Round($msu.Length/1MB,1)) MB)"
+    $osCU = $null
+    foreach ($month in @($YearMonth, $PrevMonth)) {
+        $search = "$month Cumulative Update for Microsoft server operating system version $releaseId x64"
+        Write-Host "Searching: $search"
+        $raw = Get-MSCatalogUpdate -Search $search
+        Write-Host "  Raw results: $(@($raw).Count) entries"
+        $raw | Select-Object -First 5 | ForEach-Object { Write-Host "    - $($_.Title)" }
+
+        $osCU = $raw |
+                Where-Object { $_.Title -match 'Cumulative Update' -and
+                               $_.Title -notmatch '\.NET' -and
+                               $_.Title -match 'x64' } |
+                Sort-Object LastUpdated -Descending |
+                Select-Object -First 1
+        if ($osCU) { break }
+    }
+
+    if ($osCU) {
+        Write-Host "Downloading: $($osCU.Title)"
+        $osCU | Save-MSCatalogUpdate -Destination $Dest
     } else {
-        Write-Host "[WARNING] No .msu file found in $Dest after download"
+        Write-Host "[WARNING] No OS cumulative update found for Server $ver ($releaseId)"
+    }
+
+    # ---- 2. .NET Framework Cumulative Update ----
+    Write-Host "`n=== .NET Framework CU for Server $ver ($releaseId) ==="
+
+    $dotnetCU = $null
+    foreach ($month in @($YearMonth, $PrevMonth)) {
+        $search = "$month Cumulative Update .NET Framework Microsoft server operating system $releaseId x64"
+        Write-Host "Searching: $search"
+        $raw = Get-MSCatalogUpdate -Search $search
+        Write-Host "  Raw results: $(@($raw).Count) entries"
+        $raw | Select-Object -First 5 | ForEach-Object { Write-Host "    - $($_.Title)" }
+
+        $dotnetCU = $raw |
+                    Where-Object { $_.Title -match '\.NET Framework' -and
+                                   $_.Title -match 'x64' -and
+                                   $_.Title -match $releaseId } |
+                    Sort-Object LastUpdated -Descending |
+                    Select-Object -First 1
+        if ($dotnetCU) { break }
+    }
+
+    # .NET CUs are sometimes published less frequently; try without month prefix
+    if (!$dotnetCU) {
+        $search = "Cumulative Update .NET Framework Microsoft server operating system $releaseId x64"
+        Write-Host "Searching (any month): $search"
+        $raw = Get-MSCatalogUpdate -Search $search
+        Write-Host "  Raw results: $(@($raw).Count) entries"
+        $raw | Select-Object -First 5 | ForEach-Object { Write-Host "    - $($_.Title)" }
+
+        $dotnetCU = $raw |
+                    Where-Object { $_.Title -match '\.NET Framework' -and
+                                   $_.Title -match 'x64' -and
+                                   $_.Title -match $releaseId } |
+                    Sort-Object LastUpdated -Descending |
+                    Select-Object -First 1
+    }
+
+    if ($dotnetCU) {
+        Write-Host "Downloading: $($dotnetCU.Title)"
+        $dotnetCU | Save-MSCatalogUpdate -Destination $Dest
+    } else {
+        Write-Host "[WARNING] No .NET Framework CU found for Server $ver ($releaseId)"
+    }
+
+    # ---- Summary ----
+    Write-Host "`n=== Downloaded updates for Server $ver ==="
+    $files = Get-ChildItem $Dest -Include '*.msu','*.cab' -Recurse
+    if ($files) {
+        foreach ($f in $files) {
+            Write-Host "[OK] $($f.Name) ($([math]::Round($f.Length/1MB,1)) MB)"
+        }
+    } else {
+        Write-Host "[WARNING] No update files (.msu or .cab) found in $Dest"
     }
 }
