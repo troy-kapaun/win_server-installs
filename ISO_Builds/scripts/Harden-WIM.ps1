@@ -157,8 +157,10 @@ if (Test-Path $UpdatesPath) {
 
     if ($pkgs) {
         foreach ($u in $pkgs) {
+            $pkgPath = $u.FullName
             Write-Host "Adding update: $($u.Name) ($([math]::Round($u.Length/1MB,1)) MB)"
-            dism /Image:$MountWIM /Add-Package /PackagePath:$u.FullName
+            Write-Host "  PackagePath: $pkgPath"
+            dism /Image:$MountWIM /Add-Package /PackagePath:"$pkgPath"
             if ($LASTEXITCODE -ne 0) {
                 Write-Host "[WARNING] DISM returned exit code $LASTEXITCODE for $($u.Name)"
             } else {
