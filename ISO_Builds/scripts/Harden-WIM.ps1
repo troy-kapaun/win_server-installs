@@ -103,6 +103,11 @@ robocopy "$Drive\" $Extract /MIR | Out-Null
 Write-Host "Clearing read-only attributes on extracted files..."
 attrib -R "$Extract\*.*" /S /D
 
+# Free disk space: dismount and delete the ISO copy now that extraction is complete
+Write-Host "Dismounting ISO and cleaning up to free disk space..."
+Dismount-DiskImage -ImagePath $LocalISO | Out-Null
+Remove-Item $LocalISO -Force
+
 
 # ===============================
 # 3. Convert ESD -> WIM if needed
@@ -159,12 +164,44 @@ if (Test-Path $UpdatesPath) {
         foreach ($u in $pkgs) {
             $pkgPath = $u.FullName
             Write-Host "Adding update: $($u.Name) ($([math]::Round($u.Length/1MB,1)) MB)"
-            Write-Host "  PackagePath: $pkgPath"
-            dism /Image:$MountWIM /Add-Package /PackagePath:"$pkgPath"
-            if ($LASTEXITCODE -ne 0) {
-                Write-Host "[WARNING] DISM returned exit code $LASTEXITCODE for $($u.Name)"
+
+            if ($u.Extension -eq '.msu') {
+                # Extract CAB from MSU to avoid 0x800f0823 unattend XML errors.
+                # MSU files contain a CAB + XML descriptor; applying the CAB
+                # directly bypasses the problematic XML processing.
+                $msuTemp = "$env:TEMP\msu_extract"
+                if (Test-Path $msuTemp) { Remove-Item $msuTemp -Recurse -Force }
+                New-Item $msuTemp -ItemType Directory -Force | Out-Null
+
+                Write-Host "  Extracting CAB from MSU..."
+                expand -f:*.cab "$pkgPath" $msuTemp | Out-Null
+
+                $cabs = Get-ChildItem $msuTemp -Filter '*.cab' |
+                        Where-Object { $_.Name -notmatch 'WSUSSCAN' }
+
+                foreach ($cab in $cabs) {
+                    $cabPath = $cab.FullName
+                    Write-Host "  Applying CAB: $($cab.Name)"
+                    dism /Image:$MountWIM /Add-Package /PackagePath:"$cabPath"
+                    if ($LASTEXITCODE -ne 0) {
+                        Write-Host "[WARNING] DISM returned exit code $LASTEXITCODE for $($cab.Name)"
+                    } else {
+                        Write-Host "[OK] Successfully injected $($cab.Name)"
+                    }
+                }
+
+                Remove-Item $msuTemp -Recurse -Force
+                # Delete the MSU to free disk space after extraction
+                Remove-Item "$pkgPath" -Force
             } else {
-                Write-Host "[OK] Successfully injected $($u.Name)"
+                # CAB files can be applied directly
+                Write-Host "  Applying CAB: $($u.Name)"
+                dism /Image:$MountWIM /Add-Package /PackagePath:"$pkgPath"
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host "[WARNING] DISM returned exit code $LASTEXITCODE for $($u.Name)"
+                } else {
+                    Write-Host "[OK] Successfully injected $($u.Name)"
+                }
             }
         }
     } else {
