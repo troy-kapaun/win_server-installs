@@ -124,6 +124,14 @@ jobs:
       AZURE_DEVOPS_EXT_PAT: $(System.AccessToken)
 
   - powershell: |
+      $ErrorActionPreference = 'Stop'
+      Set-Location 'C:\WIMBUILD\scripts'
+      ./Auto-Update-MSUs.ps1 -Version $env:VERSION
+    displayName: "Download Latest MSU Updates"
+    env:
+      VERSION: $(VERSION)
+
+  - powershell: |
       $version = $env:VERSION
       $tz = $env:TIMEZONE
       $iso = (Get-ChildItem 'C:\WIMBUILD\iso' -Filter '*.iso' | Select-Object -First 1).FullName
