@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <!--  Copyright (C) Microsoft. All rights reserved.  -->
 <policyDefinitions xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" revision="1.0" schemaVersion="1.0" xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">
   <policyNamespaces>
@@ -31,7 +31,7 @@
       <disabledValue>
         <decimal value="0" />
       </disabledValue>
-    </policy>    
+    </policy>
     <policy name="AllowDeploymentInSpecialProfiles" class="Machine" displayName="$(string.AllowDeploymentInSpecialProfiles)" explainText="$(string.AllowDeploymentInSpecialProfilesExplanation)" key="Software\Policies\Microsoft\Windows\Appx" valueName="AllowDeploymentInSpecialProfiles">
       <parentCategory ref="AppxDeployment" />
       <supportedOn ref="windows:SUPPORTED_Windows8" />
@@ -91,6 +91,50 @@
       <disabledValue>
         <decimal value="0" />
       </disabledValue>
+    </policy>
+    <policy name="ConfigureMSIXAuthenticationAuthorizedDomains" class="Machine" displayName="$(string.ConfigureMSIXAuthenticationAuthorizedDomains)" explainText="$(string.ConfigureMSIXAuthenticationAuthorizedDomainsExplanation)" presentation="$(presentation.ConfigureMSIXAuthenticationAuthorizedDomains)" key="Software\Policies\Microsoft\Windows\Appx">
+      <parentCategory ref="AppxDeployment" />
+      <supportedOn ref="windows:SUPPORTED_Windows_11_0_22H2" />
+      <elements>
+        <text id="ConfigureMSIXAuthenticationAuthorizedDomains" valueName="MSIXAuthenticationAuthorizedDomains" required="true" />
+      </elements>
+    </policy>
+    <policy name="DisableBackgroundAutoUpdates" class="Machine" displayName="$(string.DisableBackgroundAutoUpdates)" explainText="$(string.DisableBackgroundAutoUpdatesExplanation)" key="Software\Policies\Microsoft\Windows\Appx" valueName="DisableBackgroundAutoUpdates">
+      <parentCategory ref="AppxDeployment" />
+      <supportedOn ref="windows:SUPPORTED_Windows_10_0_21H2" />
+      <enabledValue>
+        <decimal value="1" />
+      </enabledValue>
+      <disabledValue>
+        <decimal value="0" />
+      </disabledValue>
+    </policy>
+    <policy name="DisableMeteredNetworkBackgroundAutoUpdates" class="Machine" displayName="$(string.DisableMeteredNetworkBackgroundAutoUpdates)" explainText="$(string.DisableMeteredNetworkBackgroundAutoUpdatesExplanation)" key="Software\Policies\Microsoft\Windows\Appx" valueName="DisableMeteredNetworkBackgroundAutoUpdates">
+      <parentCategory ref="AppxDeployment" />
+      <supportedOn ref="windows:SUPPORTED_Windows_10_0_21H2" />
+      <enabledValue>
+        <decimal value="1" />
+      </enabledValue>
+      <disabledValue>
+        <decimal value="0" />
+      </disabledValue>
+    </policy>
+    <policy name="DisablePerUserUnsignedPackagesByDefault" class="Machine" displayName="$(string.DisablePerUserUnsignedPackagesByDefault)" explainText="$(string.DisablePerUserUnsignedPackagesByDefaultExplanation)" key="Software\Policies\Microsoft\Windows\Appx" valueName="DisablePerUserUnsignedPackagesByDefault">
+      <parentCategory ref="AppxDeployment" />
+      <supportedOn ref="windows:SUPPORTED_Windows_10_0_22H2" />
+      <enabledValue>
+        <decimal value="1" />
+      </enabledValue>
+      <disabledValue>
+        <decimal value="0" />
+      </disabledValue>
+    </policy>
+    <policy name="AllowedNonAdminPackageFamilyNameRules" class="Machine" displayName="$(string.AllowedNonAdminPackageFamilyNameRules)" explainText="$(string.AllowedNonAdminPackageFamilyNameRulesExplanation)" presentation="$(presentation.AllowedNonAdminPackageFamilyNameRules)" key="Software\Policies\Microsoft\Windows\Appx\AllowedNonAdminPackageFamilyNameRules">
+      <parentCategory ref="AppxDeployment" />
+      <supportedOn ref="windows:SUPPORTED_Windows_11_0_22H2" />
+      <elements>
+        <list id="AllowedNonAdminPackageFamilyNameRulesList" additive="true" />
+      </elements>
     </policy>
   </policies>
 </policyDefinitions>

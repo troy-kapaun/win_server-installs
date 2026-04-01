@@ -47,14 +47,15 @@ if ($DryRun) {
     }
 
     Write-Host "`nSimulated next steps:"
+    Write-Host "- Prepare Working Directories"
     Write-Host "- Would mount ISO"
     Write-Host "- Would extract ISO"
     Write-Host "- Would convert ESD -> WIM (if necessary)"
     Write-Host "- Would mount WIM Index 2"
     Write-Host "- Would inject MSU updates"
-    Write-Host "- Would apply Security.csv baseline"
-    Write-Host "- Would apply GPO (GroupPolicy + ADMX)"
-    Write-Host "- Would set up SetupComplete.cmd audit restore"
+    Write-Host "- Load Offline Registry"
+    Write-Host "- Would apply Apply CIS GPO: GroupPolicy + ADMX"
+    Write-Host "- Would set up SetupComplete.cmd audit restore & apply security baseline"
     if ($Timezone) {
         Write-Host "- Would inject unattend_$Timezone.xml into Sysprep + Panther"
     }
@@ -78,7 +79,6 @@ $MountWIM = "$Base\WIM_MOUNT"
 
 New-Item $MountISO, $Extract, $MountWIM -ItemType Directory -Force | Out-Null
 
-
 # ===============================
 # 1. Copy ISO Local & Mount
 # ===============================
@@ -91,7 +91,6 @@ $IsoObj = Mount-DiskImage -ImagePath $LocalISO -PassThru
 $Drive  = ($IsoObj | Get-Volume).DriveLetter + ":"
 
 Write-Host "Mounted ISO at $Drive"
-
 
 # ===============================
 # 2. Extract ISO Contents
@@ -107,7 +106,6 @@ attrib -R "$Extract\*.*" /S /D
 Write-Host "Dismounting ISO and cleaning up to free disk space..."
 Dismount-DiskImage -ImagePath $LocalISO | Out-Null
 Remove-Item $LocalISO -Force
-
 
 # ===============================
 # 3. Convert ESD -> WIM if needed
@@ -128,7 +126,6 @@ if (!(Test-Path $WIM)) {
     exit 1
 }
 
-
 # ===============================
 # 4. Mount WIM
 # ===============================
@@ -143,7 +140,6 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "[FAIL] Failed to mount WIM"
     exit 1
 }
-
 
 # ===============================
 # 5. Add MSU Updates
@@ -214,7 +210,6 @@ else {
     exit 1
 }
 
-
 # ===============================
 # 6. Load Offline Registry
 # ===============================
@@ -225,22 +220,10 @@ reg load HKLM\OFFSYS  "$MountWIM\Windows\System32\Config\SYSTEM"   | Out-Null
 reg load HKLM\OFFSEC  "$MountWIM\Windows\System32\Config\SECURITY" | Out-Null
 reg load HKLM\OFFSAM  "$MountWIM\Windows\System32\Config\SAM"      | Out-Null
 
-
-# ===============================
-# 7. Apply CIS / Security.csv
-# ===============================
-Write-Host "[7] Applying Security Baseline (Security.csv)..."
-
-$CSV = Join-Path $GpoPath "Security.csv"
-$DB  = "$MountWIM\Windows\Security\Database\defltbase.sdb"
-
-secedit /configure /db $DB /cfg $CSV /areas SECURITYPOLICY USER_RIGHTS /quiet
-
-
-# ===============================
-# 8. Apply GPO: GroupPolicy + ADMX
-# ===============================
-Write-Host "[8] Injecting GPO baseline..."
+# =====================================
+# 7. Apply CIS GPO: GroupPolicy + ADMX
+# =====================================
+Write-Host "[7] Injecting CIS GPO baseline..."
 
 # WIM-mounted files are owned by TrustedInstaller with restrictive ACLs.
 # Take ownership and grant full control so we can overwrite them.
@@ -257,28 +240,32 @@ Copy-Item "$GpoPath\GroupPolicy"        "$MountWIM\Windows\System32\" -Recurse -
 Copy-Item "$GpoPath\PolicyDefinitions" "$MountWIM\Windows\"           -Recurse -Force
 
 
-# ===============================
-# 9. First Boot Auditpol Restore
-# ===============================
-Write-Host "[9] Adding SetupComplete.cmd..."
+# =========================================================
+# 8. First Boot Auditpol Restore & Apply Security Baseline
+# =========================================================
+Write-Host "[8] Adding SetupComplete.cmd..."
 
 $Scripts = "$MountWIM\Windows\Setup\Scripts"
 New-Item $Scripts -ItemType Directory -Force | Out-Null
 
 Set-Content "$Scripts\SetupComplete.cmd" @"
 @echo off
+
+regedit /s "C:\Windows\Setup\Scripts\set_security_features.reg"
+secedit /configure /cfg "C:\Windows\Setup\Scripts\Security.csv" /db defltbase.sdb /verbose
 auditpol /restore /file:"C:\Windows\Setup\Scripts\Audit.ini"
 del C:\Windows\Setup\Scripts\SetupComplete.cmd
 "@
 
+Copy-Item "$GpoPath\set_security_features.reg" "$Scripts\Security.csvset_security_features.reg" -Force
+Copy-Item "$GpoPath\Security.csv" "$Scripts\Security.csv" -Force
 Copy-Item "$GpoPath\Audit.ini" "$Scripts\Audit.ini" -Force
 
-
 # ===============================
-# 9b. Inject Sysprep Unattend
+# 8b. Inject Sysprep Unattend
 # ===============================
 if ($Timezone -and $UnattendPath) {
-    Write-Host "[9b] Injecting Sysprep unattend for timezone: $Timezone"
+    Write-Host "[8b] Injecting Sysprep unattend for timezone: $Timezone"
 
     $unattendXml = Join-Path $UnattendPath "unattend_$Timezone.xml"
     $sysprepCmd  = Join-Path $UnattendPath "Sysprep_$Timezone.cmd"
@@ -319,9 +306,9 @@ if ($Timezone -and $UnattendPath) {
 
 
 # ===============================
-# 10. Cleanup Offline Registry
+# 9. Cleanup Offline Registry
 # ===============================
-Write-Host "[10] Unloading registry hives..."
+Write-Host "[9] Unloading registry hives..."
 
 reg unload HKLM\OFFSOFT | Out-Null
 reg unload HKLM\OFFSYS  | Out-Null
@@ -330,16 +317,16 @@ reg unload HKLM\OFFSAM  | Out-Null
 
 
 # ===============================
-# 11. Commit WIM
+# 10. Commit WIM
 # ===============================
-Write-Host "[11] Committing WIM..."
+Write-Host "[10] Committing WIM..."
 dism /Unmount-WIM /MountDir:$MountWIM /Commit
 
 
 # ===============================
-# 12. Build Hardened ISO
+# 11. Build Hardened ISO
 # ===============================
-Write-Host "[12] Building final ISO..."
+Write-Host "[11] Building final ISO..."
 
 $Oscd = "C:\ADKTools\Oscdimg\oscdimg.exe"
 
