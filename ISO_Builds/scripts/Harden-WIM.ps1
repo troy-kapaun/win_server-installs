@@ -237,7 +237,9 @@ if (Test-Path "$MountWIM\Windows\PolicyDefinitions") {
 }
 
 Copy-Item "$GpoPath\GroupPolicy"        "$MountWIM\Windows\System32\" -Recurse -Force
+Write-Host "[OK] Copied GroupPolicy to $MountWIM\Windows\System32"
 Copy-Item "$GpoPath\PolicyDefinitions" "$MountWIM\Windows\"           -Recurse -Force
+Write-Host "[OK] Copied PolicyDefinitions to $MountWIM\Windows"
 
 
 # =========================================================
@@ -257,9 +259,12 @@ auditpol /restore /file:"C:\Windows\Setup\Scripts\Audit.ini"
 del C:\Windows\Setup\Scripts\SetupComplete.cmd
 "@
 
-Copy-Item "$GpoPath\set_security_features.reg" "$Scripts\Security.csvset_security_features.reg" -Force
+Copy-Item "$GpoPath\set_security_features.reg" "$Scripts\set_security_features.reg" -Force
+Write-Host "[OK] Copied set_security_features.reg to $Scripts"
 Copy-Item "$GpoPath\Security.csv" "$Scripts\Security.csv" -Force
+Write-Host "[OK] Copied Security.csv to $Scripts"
 Copy-Item "$GpoPath\Audit.ini" "$Scripts\Audit.ini" -Force
+Write-Host "[OK] Copied Audit.ini to $Scripts"
 
 # ===============================
 # 8b. Inject Sysprep Unattend
@@ -304,7 +309,6 @@ if ($Timezone -and $UnattendPath) {
     Write-Host "[9b] Skipping unattend injection - no Timezone specified"
 }
 
-
 # ===============================
 # 9. Cleanup Offline Registry
 # ===============================
@@ -315,13 +319,11 @@ reg unload HKLM\OFFSYS  | Out-Null
 reg unload HKLM\OFFSEC  | Out-Null
 reg unload HKLM\OFFSAM  | Out-Null
 
-
 # ===============================
 # 10. Commit WIM
 # ===============================
 Write-Host "[10] Committing WIM..."
 dism /Unmount-WIM /MountDir:$MountWIM /Commit
-
 
 # ===============================
 # 11. Build Hardened ISO
@@ -347,7 +349,6 @@ if (!(Test-Path $UefiBoot)) { throw "UEFI boot sector not found: $UefiBoot" }
 if ($LASTEXITCODE -ne 0) {
     throw "oscdimg failed with exit code $LASTEXITCODE"
 }
-
 
 Write-Host "==============================================="
 Write-Host " [OK] Hardened image built:"
