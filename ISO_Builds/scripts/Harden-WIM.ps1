@@ -96,11 +96,35 @@ Write-Host "Mounted ISO at $Drive"
 # 2. Extract ISO Contents
 # ===============================
 Write-Host "[2] Extracting ISO..."
-robocopy "$Drive\" $Extract /MIR | Out-Null
+robocopy "$Drive\" $Extract /E /COPY:DT /R:3 /W:1
+$rcExit = $LASTEXITCODE
+Write-Host "Robocopy exit code: $rcExit"
+if ($rcExit -ge 8) {
+    Write-Host "[FAIL] robocopy failed with exit code $rcExit"
+    exit 1
+}
 
-# Remove read-only attributes inherited from the ISO mount
-Write-Host "Clearing read-only attributes on extracted files..."
-attrib -R "$Extract\*.*" /S /D
+# Only remove read-only from install.wim which DISM needs to modify.
+# Leave boot files (BCD, efisys_noprompt.bin, etfsboot.com) untouched
+# to preserve their original ISO attributes.
+Write-Host "Clearing read-only on install.wim..."
+attrib -R "$Extract\sources\install.wim"
+
+# Verify critical boot files were extracted intact
+Write-Host "Verifying boot files..."
+foreach ($bf in @(
+    "$Extract\boot\etfsboot.com",
+    "$Extract\efi\microsoft\boot\efisys_noprompt.bin",
+    "$Extract\efi\microsoft\boot\BCD"
+)) {
+    if (Test-Path $bf) {
+        $size = (Get-Item $bf).Length
+        Write-Host "  [OK] $bf ($size bytes)"
+    } else {
+        Write-Host "  [FAIL] Missing boot file: $bf"
+        exit 1
+    }
+}
 
 # Free disk space: dismount and delete the ISO copy now that extraction is complete
 Write-Host "Dismounting ISO and cleaning up to free disk space..."
@@ -335,9 +359,30 @@ $Oscd = "C:\ADKTools\Oscdimg\oscdimg.exe"
 # Boot sector files extracted from the original ISO
 $BiosBoot = "$Extract\boot\etfsboot.com"
 $UefiBoot = "$Extract\efi\microsoft\boot\efisys_noprompt.bin"
+$BcdFile  = "$Extract\efi\microsoft\boot\BCD"
 
-if (!(Test-Path $BiosBoot)) { throw "BIOS boot sector not found: $BiosBoot" }
-if (!(Test-Path $UefiBoot)) { throw "UEFI boot sector not found: $UefiBoot" }
+# Final pre-build verification of all boot-critical files
+Write-Host "Pre-build boot file verification..."
+$bootFail = $false
+foreach ($bf in @(
+    @{ Path = $BiosBoot; Desc = "BIOS boot sector" },
+    @{ Path = $UefiBoot; Desc = "UEFI boot sector" },
+    @{ Path = $BcdFile;  Desc = "UEFI BCD store" }
+)) {
+    if (!(Test-Path $bf.Path)) {
+        Write-Host "  [FAIL] Missing $($bf.Desc): $($bf.Path)"
+        $bootFail = $true
+    } else {
+        $fi = Get-Item $bf.Path
+        if ($fi.Length -eq 0) {
+            Write-Host "  [FAIL] Empty $($bf.Desc): $($bf.Path) (0 bytes)"
+            $bootFail = $true
+        } else {
+            Write-Host "  [OK] $($bf.Desc): $($bf.Path) ($($fi.Length) bytes)"
+        }
+    }
+}
+if ($bootFail) { throw "Boot-critical files are missing or corrupt - aborting ISO build" }
 
 # -bootdata:2 creates a dual-boot ISO (BIOS + UEFI)
 #   Entry 1: p0 = BIOS platform, e = no floppy emulation, b = boot sector file
