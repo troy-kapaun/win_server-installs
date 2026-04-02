@@ -399,6 +399,31 @@ if ($LASTEXITCODE -ne 0) {
 $wimSize = [math]::Round((Get-Item $WIM).Length / 1GB, 2)
 Write-Host "[OK] WIM committed ($wimSize GB)"
 
+# ==========================================
+# 10b. Optimize WIM - export hardened index
+# ==========================================
+# After commit the WIM contains dead/superseded blocks from the CU
+# injection plus all unhardened edition indices. Re-export only the
+# hardened index with /Compress:max to strip dead weight and rebuild
+# the file with optimal compression.
+$freeGB = [math]::Round((Get-PSDrive C).Free / 1GB, 2)
+Write-Host "[10b] Optimizing WIM (Free disk: ${freeGB} GB)..."
+Write-Host "  Exporting Index $Index with /Compress:max ..."
+
+$OptWIM = "$Extract\sources\install_export.wim"
+dism /Export-Image /SourceImageFile:$WIM /SourceIndex:$Index /DestinationImageFile:$OptWIM /Compress:max
+
+if ($LASTEXITCODE -eq 0) {
+    $oldSize = [math]::Round((Get-Item $WIM).Length / 1GB, 2)
+    $newSize = [math]::Round((Get-Item $OptWIM).Length / 1GB, 2)
+    Remove-Item $WIM -Force
+    Move-Item $OptWIM $WIM -Force
+    Write-Host "[OK] WIM optimized: $oldSize GB -> $newSize GB (saved $([math]::Round($oldSize - $newSize, 2)) GB)"
+} else {
+    Write-Host "[WARNING] WIM export failed (exit code $LASTEXITCODE) - using original committed WIM"
+    if (Test-Path $OptWIM) { Remove-Item $OptWIM -Force }
+}
+
 # ===============================
 # 11. Build Hardened ISO
 # ===============================
