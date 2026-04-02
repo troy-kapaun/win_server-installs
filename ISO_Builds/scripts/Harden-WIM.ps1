@@ -153,13 +153,51 @@ if (!(Test-Path $WIM)) {
     exit 1
 }
 
+# ================================================
+# 3b. Pre-optimize WIM - extract target index only
+# ================================================
+# The source WIM contains all edition indices (Standard Core, Standard
+# Desktop Experience, Datacenter Core, Datacenter Desktop Experience).
+# Exporting only the target index before mounting frees ~3-4 GB of disk
+# space, which is critical for the large Server 2025 CU injection.
+$Index = 2   # Standard Edition with Desktop Experience
+
+$freeGB = [math]::Round((Get-PSDrive C).Free / 1GB, 2)
+Write-Host "[3b] Pre-optimizing WIM to single index (Free disk: ${freeGB} GB)..."
+
+# Count indices in the WIM
+$wimInfo = & dism /Get-WimInfo /WimFile:$WIM
+$indexLines = @($wimInfo | Select-String -Pattern '^Index\s*:')
+Write-Host "  WIM contains $($indexLines.Count) index(es)"
+
+if ($indexLines.Count -gt 1) {
+    $SingleWIM = "$Extract\sources\install_single.wim"
+    $oldSize = [math]::Round((Get-Item $WIM).Length / 1GB, 2)
+    Write-Host "  Exporting Index $Index with /Compress:max ..."
+
+    dism /Export-Image /SourceImageFile:$WIM /SourceIndex:$Index /DestinationImageFile:$SingleWIM /Compress:max
+
+    if ($LASTEXITCODE -eq 0) {
+        $newSize = [math]::Round((Get-Item $SingleWIM).Length / 1GB, 2)
+        Remove-Item $WIM -Force
+        Move-Item $SingleWIM $WIM -Force
+        # Exported WIM has only one index, so the target is now Index 1
+        $Index = 1
+        $freeGB = [math]::Round((Get-PSDrive C).Free / 1GB, 2)
+        Write-Host "[OK] WIM pre-optimized: $oldSize GB -> $newSize GB (saved $([math]::Round($oldSize - $newSize, 2)) GB)"
+        Write-Host "  Free disk after: ${freeGB} GB"
+    } else {
+        Write-Host "[WARNING] Pre-optimization failed (exit code $LASTEXITCODE) - continuing with original WIM"
+        if (Test-Path $SingleWIM) { Remove-Item $SingleWIM -Force }
+    }
+} else {
+    Write-Host "  WIM already contains a single index - skipping pre-optimization"
+}
+
 # ===============================
 # 4. Mount WIM
 # ===============================
 Write-Host "[4] Mounting WIM..."
-
-# always harden Standard Edition with Desktop Experience = Index 2
-$Index = 2  
 
 dism /Mount-WIM /WimFile:$WIM /Index:$Index /MountDir:$MountWIM
 
