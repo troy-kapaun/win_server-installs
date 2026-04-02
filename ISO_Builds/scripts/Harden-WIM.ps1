@@ -186,7 +186,8 @@ if (Test-Path $UpdatesPath) {
             Write-Host "Adding update: $($u.Name) ($([math]::Round($u.Length/1MB,1)) MB)"
 
             if ($u.Extension -eq '.msu') {
-                # Extract CAB from MSU to avoid 0x800f0823 unattend XML errors.
+                # Extract CAB from MSU to avoid 0x800f0823 unattend XML errors
+                # that occur when host DISM version differs from image version.
                 # MSU files contain a CAB + XML descriptor; applying the CAB
                 # directly bypasses the problematic XML processing.
                 $msuTemp = "$env:TEMP\msu_extract"
@@ -194,25 +195,68 @@ if (Test-Path $UpdatesPath) {
                 New-Item $msuTemp -ItemType Directory -Force | Out-Null
 
                 Write-Host "  Extracting CAB from MSU..."
-                expand -f:*.cab "$pkgPath" $msuTemp | Out-Null
+                $expandOut = & expand -f:*.cab "$pkgPath" $msuTemp 2>&1
+                $expandExit = $LASTEXITCODE
+                Write-Host "  expand exit code: $expandExit"
 
-                $cabs = Get-ChildItem $msuTemp -Filter '*.cab' |
-                        Where-Object { $_.Name -notmatch 'WSUSSCAN' }
-
-                foreach ($cab in $cabs) {
-                    $cabPath = $cab.FullName
-                    Write-Host "  Applying CAB: $($cab.Name)"
-                    dism /Image:$MountWIM /Add-Package /PackagePath:"$cabPath"
-                    if ($LASTEXITCODE -ne 0) {
-                        Write-Host "[WARNING] DISM returned exit code $LASTEXITCODE for $($cab.Name)"
-                    } else {
-                        Write-Host "[OK] Successfully injected $($cab.Name)"
-                    }
+                $allExtracted = Get-ChildItem $msuTemp -Recurse -File
+                Write-Host "  Files extracted: $(@($allExtracted).Count)"
+                foreach ($ef in $allExtracted) {
+                    Write-Host "    $($ef.Name) ($([math]::Round($ef.Length/1MB,1)) MB)"
                 }
 
-                Remove-Item $msuTemp -Recurse -Force
-                # Delete the MSU to free disk space after extraction
-                Remove-Item "$pkgPath" -Force
+                $cabs = @($allExtracted | Where-Object {
+                    $_.Extension -eq '.cab' -and $_.Name -notmatch 'WSUSSCAN'
+                })
+
+                # Fallback: if -f:*.cab found nothing, try extracting all files.
+                # Newer MSU formats (Windows 11 24H2 / Server 2025) may require this.
+                if ($cabs.Count -eq 0) {
+                    Write-Host "  [WARNING] No payload CABs from -f:*.cab, retrying with -f:* ..."
+                    Remove-Item $msuTemp -Recurse -Force
+                    New-Item $msuTemp -ItemType Directory -Force | Out-Null
+                    $expandOut = & expand -f:* "$pkgPath" $msuTemp 2>&1
+                    $expandExit = $LASTEXITCODE
+                    Write-Host "  expand -f:* exit code: $expandExit"
+
+                    $allExtracted = Get-ChildItem $msuTemp -Recurse -File
+                    Write-Host "  Files extracted: $(@($allExtracted).Count)"
+                    foreach ($ef in $allExtracted) {
+                        Write-Host "    $($ef.Name) ($([math]::Round($ef.Length/1MB,1)) MB)"
+                    }
+
+                    $cabs = @($allExtracted | Where-Object {
+                        $_.Extension -eq '.cab' -and $_.Name -notmatch 'WSUSSCAN'
+                    })
+                }
+
+                if ($cabs.Count -gt 0) {
+                    foreach ($cab in $cabs) {
+                        $cabPath = $cab.FullName
+                        Write-Host "  Applying CAB: $($cab.Name) ($([math]::Round($cab.Length/1MB,1)) MB)"
+                        dism /Image:$MountWIM /Add-Package /PackagePath:"$cabPath"
+                        if ($LASTEXITCODE -ne 0) {
+                            Write-Host "[WARNING] DISM returned exit code $LASTEXITCODE for $($cab.Name)"
+                        } else {
+                            Write-Host "[OK] Successfully injected $($cab.Name)"
+                        }
+                    }
+                    Remove-Item $msuTemp -Recurse -Force
+                    Remove-Item "$pkgPath" -Force
+                } else {
+                    # No extractable CABs - apply MSU directly with DISM.
+                    # This works when host DISM and image versions match
+                    # (e.g., both are 26100 for Server 2025).
+                    Write-Host "  [WARNING] No payload CABs extracted - applying MSU directly with DISM..."
+                    Remove-Item $msuTemp -Recurse -Force
+                    dism /Image:$MountWIM /Add-Package /PackagePath:"$pkgPath"
+                    if ($LASTEXITCODE -ne 0) {
+                        Write-Host "[WARNING] DISM returned exit code $LASTEXITCODE for $($u.Name) (direct MSU)"
+                    } else {
+                        Write-Host "[OK] Successfully injected $($u.Name) (direct MSU)"
+                    }
+                    Remove-Item "$pkgPath" -Force
+                }
             } else {
                 # CAB files can be applied directly
                 Write-Host "  Applying CAB: $($u.Name)"
