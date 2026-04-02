@@ -80,17 +80,14 @@ $MountWIM = "$Base\WIM_MOUNT"
 New-Item $MountISO, $Extract, $MountWIM -ItemType Directory -Force | Out-Null
 
 # ===============================
-# 1. Copy ISO Local & Mount
+# 1. Mount ISO
 # ===============================
 Write-Host "[1] Mounting ISO..."
 
-$LocalISO = "C:\WIMBUILD\input.iso"
-Copy-Item $IsoPath $LocalISO -Force
-
-$IsoObj = Mount-DiskImage -ImagePath $LocalISO -PassThru
+# Mount the source ISO directly - no local copy needed.
+# Avoiding the copy saves ~5 GB of disk space on the agent.
+$IsoObj = Mount-DiskImage -ImagePath $IsoPath -PassThru
 $Drive  = ($IsoObj | Get-Volume).DriveLetter + ":"
-
-Write-Host "Mounted ISO at $Drive"
 
 # ===============================
 # 2. Extract ISO Contents
@@ -129,10 +126,13 @@ foreach ($bf in @(
     }
 }
 
-# Free disk space: dismount and delete the ISO copy now that extraction is complete
+# Free disk space: dismount and delete the source ISO now that extraction is
+# complete. The ~5 GB saved here is critical for the CU injection step.
 Write-Host "Dismounting ISO and cleaning up to free disk space..."
-Dismount-DiskImage -ImagePath $LocalISO | Out-Null
-Remove-Item $LocalISO -Force
+Dismount-DiskImage -ImagePath $IsoPath | Out-Null
+Remove-Item $IsoPath -Force
+$freeGB = [math]::Round((Get-PSDrive C).Free / 1GB, 2)
+Write-Host "[OK] Source ISO deleted (Free disk: ${freeGB} GB)"
 
 # ===============================
 # 3. Convert ESD -> WIM if needed
