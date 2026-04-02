@@ -112,14 +112,17 @@ attrib -R "$Extract\sources\install.wim"
 
 # Verify critical boot files were extracted intact
 Write-Host "Verifying boot files..."
+$bootFileHashes = @{}
 foreach ($bf in @(
     "$Extract\boot\etfsboot.com",
     "$Extract\efi\microsoft\boot\efisys_noprompt.bin",
     "$Extract\efi\microsoft\boot\BCD"
 )) {
     if (Test-Path $bf) {
-        $size = (Get-Item $bf).Length
-        Write-Host "  [OK] $bf ($size bytes)"
+        $fi = Get-Item $bf
+        $hash = (Get-FileHash $bf -Algorithm SHA256).Hash
+        $bootFileHashes[$bf] = $hash
+        Write-Host "  [OK] $bf ($($fi.Length) bytes) SHA256=$hash"
     } else {
         Write-Host "  [FAIL] Missing boot file: $bf"
         exit 1
@@ -384,22 +387,49 @@ reg unload HKLM\OFFSAM  | Out-Null
 # ===============================
 # 10. Commit WIM
 # ===============================
-Write-Host "[10] Committing WIM..."
+$freeGB = [math]::Round((Get-PSDrive C).Free / 1GB, 2)
+Write-Host "[10] Committing WIM... (Free disk: ${freeGB} GB)"
 dism /Unmount-WIM /MountDir:$MountWIM /Commit
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[FAIL] DISM commit failed with exit code $LASTEXITCODE"
+    exit 1
+}
+
+$wimSize = [math]::Round((Get-Item $WIM).Length / 1GB, 2)
+Write-Host "[OK] WIM committed ($wimSize GB)"
 
 # ===============================
 # 11. Build Hardened ISO
 # ===============================
-Write-Host "[11] Building final ISO..."
+$freeGB = [math]::Round((Get-PSDrive C).Free / 1GB, 2)
+Write-Host "[11] Building final ISO... (Free disk: ${freeGB} GB)"
 
 $Oscd = "C:\ADKTools\Oscdimg\oscdimg.exe"
+$AdkDir = Split-Path $Oscd -Parent
 
-# Boot sector files extracted from the original ISO
-$BiosBoot = "$Extract\boot\etfsboot.com"
-$UefiBoot = "$Extract\efi\microsoft\boot\efisys_noprompt.bin"
-$BcdFile  = "$Extract\efi\microsoft\boot\BCD"
+# Prefer the ADK's own boot sector files over the ISO-extracted copies.
+# The ADK files are the canonical versions designed for use with oscdimg
+# and haven't been through filesystem extraction that could alter them.
+$AdkBios = Join-Path $AdkDir "etfsboot.com"
+$AdkUefi = Join-Path $AdkDir "efisys_noprompt.bin"
 
-# Final pre-build verification of all boot-critical files
+if ((Test-Path $AdkBios) -and (Test-Path $AdkUefi)) {
+    $BiosBoot = $AdkBios
+    $UefiBoot = $AdkUefi
+    Write-Host "Using ADK boot sector files:"
+} else {
+    $BiosBoot = "$Extract\boot\etfsboot.com"
+    $UefiBoot = "$Extract\efi\microsoft\boot\efisys_noprompt.bin"
+    Write-Host "ADK boot files not found, using ISO-extracted boot sector files:"
+}
+Write-Host "  BIOS: $BiosBoot"
+Write-Host "  UEFI: $UefiBoot"
+
+# The BCD store MUST exist on the ISO filesystem for the boot manager
+$BcdFile = "$Extract\efi\microsoft\boot\BCD"
+
+# Verify all boot-critical files and compare hashes with post-extraction baseline
 Write-Host "Pre-build boot file verification..."
 $bootFail = $false
 foreach ($bf in @(
@@ -412,28 +442,42 @@ foreach ($bf in @(
         $bootFail = $true
     } else {
         $fi = Get-Item $bf.Path
+        $hash = (Get-FileHash $bf.Path -Algorithm SHA256).Hash
         if ($fi.Length -eq 0) {
             Write-Host "  [FAIL] Empty $($bf.Desc): $($bf.Path) (0 bytes)"
             $bootFail = $true
         } else {
-            Write-Host "  [OK] $($bf.Desc): $($bf.Path) ($($fi.Length) bytes)"
+            Write-Host "  [OK] $($bf.Desc): $($bf.Path) ($($fi.Length) bytes) SHA256=$hash"
+        }
+        # Compare ISO-extracted files against post-extraction baseline
+        if ($bootFileHashes.ContainsKey($bf.Path)) {
+            if ($bootFileHashes[$bf.Path] -ne $hash) {
+                Write-Host "  [WARNING] Hash changed since extraction! Was: $($bootFileHashes[$bf.Path])"
+            } else {
+                Write-Host "  [OK] Hash matches post-extraction baseline"
+            }
         }
     }
 }
 if ($bootFail) { throw "Boot-critical files are missing or corrupt - aborting ISO build" }
 
-# -bootdata:2 creates a dual-boot ISO (BIOS + UEFI)
-#   Entry 1: p0 = BIOS platform, e = no floppy emulation, b = boot sector file
-#   Entry 2: pEF = UEFI platform, e = no floppy emulation, b = boot sector file
-& $Oscd -m -o -u2 -udfver102 `
-    -bootdata:2#p0,e,b"$BiosBoot"#pEF,e,b"$UefiBoot" `
-    $Extract $OutputIso
+# Build oscdimg arguments using splatting to avoid PowerShell
+# argument-parsing issues with the complex -bootdata string.
+$bootdataArg = "-bootdata:2#p0,e,b${BiosBoot}#pEF,e,b${UefiBoot}"
+$oscdArgs = @('-m', '-o', '-u2', '-udfver102', $bootdataArg, $Extract, $OutputIso)
+
+Write-Host "oscdimg command:"
+Write-Host "  $Oscd"
+foreach ($a in $oscdArgs) { Write-Host "    $a" }
+
+& $Oscd @oscdArgs
 
 if ($LASTEXITCODE -ne 0) {
     throw "oscdimg failed with exit code $LASTEXITCODE"
 }
 
+$isoSize = [math]::Round((Get-Item $OutputIso).Length / 1GB, 2)
 Write-Host "==============================================="
-Write-Host " [OK] Hardened image built:"
+Write-Host " [OK] Hardened image built ($isoSize GB):"
 Write-Host "     $OutputIso"
 Write-Host "==============================================="
