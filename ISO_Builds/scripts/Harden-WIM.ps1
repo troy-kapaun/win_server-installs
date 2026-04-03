@@ -471,20 +471,24 @@ Write-Host "[11] Building final ISO... (Free disk: ${freeGB} GB)"
 $Oscd = "C:\ADKTools\Oscdimg\oscdimg.exe"
 $AdkDir = Split-Path $Oscd -Parent
 
-# Prefer the ADK's own boot sector files over the ISO-extracted copies.
-# The ADK files are the canonical versions designed for use with oscdimg
-# and haven't been through filesystem extraction that could alter them.
-$AdkBios = Join-Path $AdkDir "etfsboot.com"
-$AdkUefi = Join-Path $AdkDir "efisys_noprompt.bin"
+# Use the ISO's own boot sector files. efisys_noprompt.bin contains an
+# embedded UEFI boot manager whose version must match the ISO's BCD store.
+# Using ADK boot files here breaks Server 2022 because the ADK ships a
+# 2025-era boot manager that is incompatible with the 2022 BCD layout.
+# The ISO extraction (robocopy /E /COPY:DT, attrib -R only on install.wim)
+# preserves these files intact, verified by SHA256 hashing in step 2.
+$IsoBios = "$Extract\boot\etfsboot.com"
+$IsoUefi = "$Extract\efi\microsoft\boot\efisys_noprompt.bin"
 
-if ((Test-Path $AdkBios) -and (Test-Path $AdkUefi)) {
-    $BiosBoot = $AdkBios
-    $UefiBoot = $AdkUefi
-    Write-Host "Using ADK boot sector files:"
+if ((Test-Path $IsoBios) -and (Test-Path $IsoUefi)) {
+    $BiosBoot = $IsoBios
+    $UefiBoot = $IsoUefi
+    Write-Host "Using ISO-extracted boot sector files (version-matched):"
 } else {
-    $BiosBoot = "$Extract\boot\etfsboot.com"
-    $UefiBoot = "$Extract\efi\microsoft\boot\efisys_noprompt.bin"
-    Write-Host "ADK boot files not found, using ISO-extracted boot sector files:"
+    # Fallback to ADK boot files only if ISO extraction failed
+    $BiosBoot = Join-Path $AdkDir "etfsboot.com"
+    $UefiBoot = Join-Path $AdkDir "efisys_noprompt.bin"
+    Write-Host "[WARNING] ISO boot files missing, falling back to ADK boot sector files:"
 }
 Write-Host "  BIOS: $BiosBoot"
 Write-Host "  UEFI: $UefiBoot"
