@@ -12,7 +12,7 @@ pool:
   vmImage: 'windows-latest'
 
 variables:
-- group: github-secrets   # Contains GITHUB_PAT
+- group: github-secrets   # Contains GITHUB_PAT and GITHUB_PAT1
 
 steps:
 
@@ -105,6 +105,18 @@ steps:
     git remote -v
   displayName: "Add GitHub Remote"
 
+- powershell: |
+    cd cleaned_repo
+
+    if (git remote | Select-String "^github1$") {
+        git remote remove github1
+    }
+
+    $githubUrl1 = "https://$(GITHUB_PAT1)@github.com/Troy-Kapaun_BRK/win_server-installs.git"
+    git remote add github1 $githubUrl1
+    git remote -v
+  displayName: "Add GitHub Remote1"
+
 # 10. Push Complete Cleaned History to GitHub
 - powershell: |
     cd cleaned_repo
@@ -117,3 +129,15 @@ steps:
 
     Write-Host "✅ GitHub Mirror Completed Successfully"
   displayName: "Mirror to GitHub"
+
+- powershell: |
+    cd cleaned_repo
+
+    Write-Host "Pushing all branches..."
+    git push github1 --force --all
+
+    Write-Host "Pushing tags..."
+    git push github1 --force --tags
+
+    Write-Host "✅ GitHub1 Mirror Completed Successfully"
+  displayName: "Mirror to GitHub1"
